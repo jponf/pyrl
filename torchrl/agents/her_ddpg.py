@@ -3,6 +3,7 @@
 from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
+import collections
 import errno
 import os
 import pickle
@@ -79,7 +80,7 @@ class HERDDPG(object):
 
     def __init__(self,
                  env,
-                 reward_fn,
+                 eps_greedy=0.2,
                  gamma=.95,
                  tau=1e-3,
                  replay_k=2,
@@ -98,12 +99,13 @@ class HERDDPG(object):
                  critic_lr=3e-4,
                  action_penalty=1.0,
                  prm_loss_weight=0.001,
-                 aux_loss_weight=0.0078,
+                 aux_loss_weight=None,
                  normalize_observations=True,
                  normalize_observations_clip=5.0,
                  action_noise=0.2,
                  log_dir="her_ddpg_log"):
         self.env = env
+        self.eps_greedy = eps_greedy
         self.gamma = gamma
         self.tau = tau
 
@@ -115,6 +117,7 @@ class HERDDPG(object):
         self.replay_k = replay_k
         self.batch_size = batch_size
         self.demo_batch_size = demo_batch_size
+        self.reward_scale = reward_scale
         self.replay_buffer = HerReplayBuffer(
             obs_dim=obs_dim,
             goal_dim=goal_dim,
@@ -151,15 +154,24 @@ class HERDDPG(object):
         self.target_critic.eval()
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(),
-                                          lr=self.actor_lr)
+                                          lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(),
-                                           lr=self.critic_lr)
+                                           lr=critic_lr)
 
+        self._actor_hidden_layers = actor_hidden_layers
+        self._actor_hidden_size = actor_hidden_size
+        self._actor_activation = actor_activation
         self._actor_lr = actor_lr
+        self._critic_hidden_layers = critic_hidden_layers
+        self._critic_hidden_size = critic_hidden_size
+        self._critic_activation = critic_activation
         self._critic_lr = critic_lr
         self._action_penalty = action_penalty
         self._prm_loss_weight = prm_loss_weight
-        self._aux_loss_weight = aux_loss_weight
+        if aux_loss_weight is None:
+            self._aux_loss_weight = 1.0 / demo_batch_size
+        else:
+            self._aux_loss_weight = aux_loss_weight
 
         # Normalizer
         self._normalize_observations_clip = normalize_observations_clip
@@ -178,6 +190,7 @@ class HERDDPG(object):
         action_space_range = (self.actor.action_space.high -
                               self.actor.action_space.low)
 
+        self.action_noise_arg = action_noise
         if action_noise > 0.0:
             self.action_noise = NormalActionNoise(
                 mu=np.zeros(action_dim),
@@ -222,27 +235,30 @@ class HERDDPG(object):
 
         for obs, acs, info in zip(observations, actions, infos):
             states = obs[:-1]
-            n_states = obs[1:]
+            next_states = obs[1:]
+
             # Ignore demonstrations with too many steps
             if len(acs) > temp_rb.max_steps:
                 continue
 
-            for s, a, ns, inf in zip(states, acs, n_states, info):
-                reward = self.env.compute_reward(ns["achieved_goal"],
-                                                 ns["desired_goal"],
-                                                 inf)
-                temp_rb.add(obs=s["observation"],
-                            action=a,
-                            next_obs=ns["observation"],
+            transitions = zip(states, acs, next_states, info)
+            for state, action, next_state, info in transitions:
+                reward = self.env.compute_reward(next_state["achieved_goal"],
+                                                 next_state["desired_goal"],
+                                                 info)
+                action = self._to_actor_space(action)
+                temp_rb.add(obs=state["observation"],
+                            action=action,
+                            next_obs=next_state["observation"],
                             reward=reward,
-                            terminal=inf["is_success"],
-                            goal=ns["desired_goal"],
-                            achieved_goal=ns["achieved_goal"])
+                            terminal=info["is_success"],
+                            goal=next_state["desired_goal"],
+                            achieved_goal=next_state["achieved_goal"])
             temp_rb.save_episode()
 
-        _LOG.debug("(HER-DDPG) Demonstratoin replay buffer size")
-        _LOG.debug("(HER-DDPG)     Num. Episodes: %d", temp_rb.num_episodes)
-        _LOG.debug("(HER-DDPG)     Num. Steps: %d", temp_rb.count_steps())
+        _LOG.debug("(HER-TD3) Demonstratoin replay buffer size")
+        _LOG.debug("(HER-TD3)     Num. Episodes: %d", temp_rb.num_episodes)
+        _LOG.debug("(HER-TD3)     Num. Steps: %d", temp_rb.count_steps())
         if temp_rb.count_steps() < self.demo_batch_size:
             raise ValueError("demonstrations replay buffer has less steps than"
                              " `demo_batch_size`")
@@ -287,11 +303,7 @@ class HERDDPG(object):
             # self.goal_normalizer.update(state["achieved_goal"])
 
         # re-scale action
-        action = umath.scale(action,
-                             self.action_space.low,
-                             self.action_space.high,
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+        return self._to_actor_space(action)
 
         self.replay_buffer.add(
             obs=state["observation"],
@@ -317,9 +329,37 @@ class HERDDPG(object):
                 t_steps = range(steps)
 
             for i in t_steps:
-                update_policy = (self.train_steps + 1) % self.policy_delay == 0
-                self._train(update_policy)
+                self._train()
                 self.train_steps += 1
+
+    @torch.no_grad()
+    def compute_action(self, state):
+        # Pre-process
+        obs = torch.from_numpy(state["observation"]).float()
+        goal = torch.from_numpy(state["desired_goal"]).float()
+        if self.obs_normalizer:
+            obs = self.obs_normalizer.transform(obs)
+            goal = self.goal_normalizer.transform(goal)
+        obs = obs.unsqueeze_(0).to(_DEVICE)
+        goal = goal.unsqueeze_(0).to(_DEVICE)
+
+        # Compute action
+        if self._train_mode:
+            if np.random.random_sample() < self.eps_greedy:
+                action = np.random.uniform(low=self.actor.action_space.low,
+                                           high=self.actor.action_space.high)
+            else:
+                action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+                action = np.clip(action + self.action_noise(),
+                                 self.actor.action_space.low,
+                                 self.actor.action_space.high)
+        else:
+            action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+
+        return self._to_action_space(action)
+
+    # Agent training
+    ##########################
 
     def _train(self):
         batch, demo_mask = self._sample_batch()
@@ -333,12 +373,12 @@ class HERDDPG(object):
         # Compute critic loss
         with torch.no_grad():
             next_action = self.target_actor(next_obs, goal)
-            target_q = self.target_critic_1(next_obs, goal, next_action)
+            target_q = self.target_critic(next_obs, goal, next_action)
             target_q = (1 - terminal.int()) * self.gamma + target_q
             target_q += self.reward_scale + reward
 
         # Optimize critic
-        current_q = self.critic_(obs, goal, action)
+        current_q = self.critic(obs, goal, action)
         loss_q = F.smooth_l1_loss(current_q, target_q)
         self.critic_optimizer.zero_grad()
         loss_q.backward()
@@ -346,7 +386,7 @@ class HERDDPG(object):
 
         # Actor loss
         actor_out = self.actor(obs, goal)
-        pi_loss = -self.critic_1(obs, goal, actor_out).mean()
+        pi_loss = -self.critic(obs, goal, actor_out).mean()
         pi_loss += actor_out.pow(2).mean()
         if demo_mask.any():
             cloning_loss = (actor_out[demo_mask] - action[demo_mask])
@@ -397,38 +437,25 @@ class HERDDPG(object):
                                        self.critic.parameters()):
             target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
 
-    @torch.no_grad()
-    def compute_action(self, state):
-        # Pre-process
-        obs = torch.from_numpy(state["observation"]).float()
-        achieved_g = torch.from_numpy(state["achieved_goal"]).float()
-        if self.obs_normalizer:
-            obs = self.obs_normalizer.transform(obs)
-            achieved_g = self.goal_normalizer.transform(achieved_g)
-        obs = obs.unsqueeze_(0).to(_DEVICE)
-        achieved_g = achieved_g.unsqueeze_(0).to(_DEVICE)
+    # Utilities
+    ########################
 
-        # Compute action
-        if self._train_mode:
-            # 20 % chance of picking an action uniformly at random
-            if np.random.random_sample() < 0.2:
-                action = np.random.uniform(low=self.actor.action_space.low,
-                                           high=self.actor.action_space.high)
-            else:
-                action = self.actor(obs, achieved_g).cpu().squeeze_(0).numpy()
-                action = np.clip(action + self.action_noise(),
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high)
-        else:
-            action = self.actor(obs, achieved_g).cpu().squeeze_(0).numpy()
+    def _to_actor_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.env.action_space.low,
+                           max_x=self.env.action_space.high,
+                           min_out=self.actor.action_space.low,
+                           max_out=self.actor.action_space.high)
 
-        # Post-process
-        env_action = umath.scale(action,
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high,
-                                 self.env.action_space.low,
-                                 self.env.action_space.high)
-        return env_action
+    def _to_action_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.actor.action_space.low,
+                           max_x=self.actor.action_space.high,
+                           min_out=self.env.action_space.low,
+                           max_out=self.env.action_space.high)
+
+    # Save/Load Agent
+    ########################
 
     def save(self, path, replay_buffer=True):
         """Saves the agent in the directory pointed by `path`.
@@ -441,7 +468,8 @@ class HERDDPG(object):
             if err.errno != errno.EEXIST:
                 raise
 
-        args = {
+        args = collections.OrderedDict([
+            ('eps_greedy', self.eps_greedy),
             ('gamma', self.gamma),
             ('tau', self.tau),
             ('replay_k', self.replay_k),
@@ -465,7 +493,7 @@ class HERDDPG(object):
             ('normalize_observations_clip', self._normalize_observations_clip),
             ('action_noise', self.action_noise_arg),
             ('log_dir', self._summary_w.log_dir)
-        }
+        ])
 
         state = {
             'total_steps': self.total_steps,

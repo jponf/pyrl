@@ -51,7 +51,8 @@ class HerTD3(object):
 
     def __init__(self,
                  env,
-                 gamma=.9,
+                 eps_greedy=0.2,
+                 gamma=0.95,
                  tau=0.005,
                  replay_k=2,
                  batch_size=256,
@@ -70,14 +71,15 @@ class HerTD3(object):
                  critic_lr=3e-4,
                  action_penalty=1.0,
                  prm_loss_weight=0.001,
-                 aux_loss_weight=0.0078,
+                 aux_loss_weight=None,
                  normalize_observations=True,
                  normalize_observations_clip=5.0,
                  action_noise=0.2,
-                 random_steps=1000,
                  log_dir="her_td3_log"):
         """
         :param env: OpenAI's GoalEnv instance.
+        :param float eps_greedy: Probability of picking a random action
+            in training mode.
         :param float gamma: Bellman's discount rate.
         :param float tau: Used to perform "soft" updates of the weights from
             the actor/critic to their "target" counterparts.
@@ -104,15 +106,13 @@ class HerTD3(object):
         :param bool normalize_observations: Whether or not observations should
             be normalized using the running mean and standard deviation before
             feeding them to the network.
-        :param int random_steps: Initial number  of steps that will use a
-            purely exploration policy (random). Afterwards, an off-policy
-            exploration strategy with Gaussian noise will be used.
         :param str log_dir: Directory to output tensorboard logs.
         """
         if not torchrl.util.ugym.is_her_env(env):
             raise ValueError("{} is not a valid HER environment".format(env))
 
         self.env = env
+        self.eps_greedy = eps_greedy
         self.gamma = gamma
         self.tau = tau
 
@@ -190,7 +190,10 @@ class HerTD3(object):
         self._critic_lr = critic_lr
         self._action_penalty = action_penalty
         self._prm_loss_weight = prm_loss_weight
-        self._aux_loss_weight = aux_loss_weight
+        if aux_loss_weight is None:
+            self._aux_loss_weight = 1.0 / demo_batch_size
+        else:
+            self._aux_loss_weight = aux_loss_weight
 
         # Normalizer
         self._normalize_observations_clip = normalize_observations_clip
@@ -222,8 +225,6 @@ class HerTD3(object):
             sigma=0.1 * action_space_range,
             clip_min=np.repeat(-0.2, action_dim),
             clip_max=np.repeat(0.2, action_dim))
-
-        self.random_steps = random_steps
 
         # Demonstration replay buffer
         self._demo_replay_buffer = None
@@ -273,22 +274,25 @@ class HerTD3(object):
 
         for obs, acs, info in zip(observations, actions, infos):
             states = obs[:-1]
-            n_states = obs[1:]
+            next_states = obs[1:]
+
             # Ignore demonstrations with too many steps
             if len(acs) > temp_rb.max_steps:
                 continue
 
-            for s, a, ns, inf in zip(states, acs, n_states, info):
-                reward = self.env.compute_reward(ns["achieved_goal"],
-                                                 ns["desired_goal"],
-                                                 inf)
-                temp_rb.add(obs=s["observation"],
-                            action=a,
-                            next_obs=ns["observation"],
+            transitions = zip(states, acs, next_states, info)
+            for state, action, next_state, info in transitions:
+                reward = self.env.compute_reward(next_state["achieved_goal"],
+                                                 next_state["desired_goal"],
+                                                 info)
+                action = self._to_actor_space(action)
+                temp_rb.add(obs=state["observation"],
+                            action=action,
+                            next_obs=next_state["observation"],
                             reward=reward,
-                            terminal=inf["is_success"],
-                            goal=ns["desired_goal"],
-                            achieved_goal=ns["achieved_goal"])
+                            terminal=info["is_success"],
+                            goal=next_state["desired_goal"],
+                            achieved_goal=next_state["achieved_goal"])
             temp_rb.save_episode()
 
         _LOG.debug("(HER-TD3) Demonstratoin replay buffer size")
@@ -311,7 +315,7 @@ class HerTD3(object):
         """
         self.replay_buffer.save_episode()
 
-    def update(self, state, env_action, reward, next_state, done):
+    def update(self, state, action, reward, next_state, done):
         self.total_steps += 1
         self.episode_steps += 1
 
@@ -322,11 +326,7 @@ class HerTD3(object):
             # self.goal_normalizer.update(state["achieved_goal"])
 
         # re-scale action
-        action = umath.scale(env_action,
-                             self.env.action_space.low,
-                             self.env.action_space.high,
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+        action = self._to_actor_space(action)
 
         self.replay_buffer.add(
             obs=state["observation"],
@@ -355,6 +355,39 @@ class HerTD3(object):
                 update_policy = (self.train_steps + 1) % self.policy_delay == 0
                 self._train(update_policy)
                 self.train_steps += 1
+
+    @torch.no_grad()
+    def compute_action(self, state):
+        # Random exploration
+        if self._train_mode and self.total_steps < self.random_steps:
+            return self.env.action_space.sample()
+
+        # Pre-process
+        obs = torch.from_numpy(state["observation"]).float()
+        goal = torch.from_numpy(state["desired_goal"]).float()
+        if self.obs_normalizer:
+            obs = self.obs_normalizer.transform(obs)
+            goal = self.goal_normalizer.transform(goal)
+        obs = obs.unsqueeze_(0).to(_DEVICE)
+        goal = goal.unsqueeze_(0).to(_DEVICE)
+
+        # Compute action
+        if self._train_mode:
+            if np.random.random_sample() < self.eps_greedy:
+                action = np.random.uniform(low=self.actor.action_space.low,
+                                           high=self.actor.action_space.high)
+            else:
+                action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+                action = np.clip(action + self.action_noise(),
+                                 self.actor.action_space.low,
+                                 self.actor.action_space.high)
+        else:
+            action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+
+        return self._to_action_space(action)
+
+    # Agent training
+    ##########################
 
     def _train(self, update_policy):
         batch, demo_mask = self._sample_batch()
@@ -442,6 +475,7 @@ class HerTD3(object):
         batch = self.replay_buffer.sample_batch_torch(
             sample_size=exp_size, replay_k=self.replay_k,
             reward_fn=_sample_reward_fn, device=_DEVICE)
+
         if has_demo:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
                 sample_size=self.demo_batch_size, replay_k=0,
@@ -466,42 +500,25 @@ class HerTD3(object):
                                        self.critic_2.parameters()):
             target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
 
-    @torch.no_grad()
-    def compute_action(self, state):
-        # Random exploration
-        if self._train_mode and self.total_steps < self.random_steps:
-            return self.env.action_space.sample()
+    # Utilities
+    ########################
 
-        # Pre-process
-        obs = torch.from_numpy(state["observation"]).float()
-        achieved_g = torch.from_numpy(state["achieved_goal"]).float()
-        if self.obs_normalizer:
-            obs = self.obs_normalizer.transform(obs)
-            achieved_g = self.goal_normalizer.transform(achieved_g)
-        obs = obs.unsqueeze_(0).to(_DEVICE)
-        achieved_g = achieved_g.unsqueeze_(0).to(_DEVICE)
+    def _to_actor_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.env.action_space.low,
+                           max_x=self.env.action_space.high,
+                           min_out=self.actor.action_space.low,
+                           max_out=self.actor.action_space.high)
 
-        # Compute action
-        if self._train_mode:
-            # 20 % chance of picking an action uniformly at random
-            if np.random.random_sample() < 0.2:
-                action = np.random.uniform(low=self.actor.action_space.low,
-                                           high=self.actor.action_space.high)
-            else:
-                action = self.actor(obs, achieved_g).cpu().squeeze_(0).numpy()
-                action = np.clip(action + self.action_noise(),
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high)
-        else:
-            action = self.actor(obs, achieved_g).cpu().squeeze_(0).numpy()
+    def _to_action_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.actor.action_space.low,
+                           max_x=self.actor.action_space.high,
+                           min_out=self.env.action_space.low,
+                           max_out=self.env.action_space.high)
 
-        # Post-process
-        env_action = umath.scale(action,
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high,
-                                 self.env.action_space.low,
-                                 self.env.action_space.high)
-        return env_action
+    # Save/Load Agent
+    ########################
 
     def save(self, path, replay_buffer=True):
         """Saves the agent in the directory pointed by `path`.
@@ -515,6 +532,7 @@ class HerTD3(object):
                 raise
 
         args = collections.OrderedDict([
+            ('eps_greedy', self.eps_greedy),
             ('gamma', self.gamma),
             ('tau', self.tau),
             ('replay_k', self.replay_k),
@@ -538,7 +556,6 @@ class HerTD3(object):
             ('normalize_observations', self.obs_normalizer is not None),
             ('normalize_observations_clip', self._normalize_observations_clip),
             ('action_noise', self.action_noise_arg),
-            ('random_steps', self.random_steps),
             ('log_dir', self._summary_w.log_dir)
         ])
 

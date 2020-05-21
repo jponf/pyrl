@@ -4,6 +4,8 @@ from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
 # Standard library
+import math
+import os
 import sys
 import time
 
@@ -70,7 +72,7 @@ def cli_her_td3_train(environment,
                       reward_scale,
                       action_noise,
                       random_steps,
-                      replay_buffer_episodes,
+                      replay_buffer,
                       actor_hidden_layers,
                       actor_hidden_size,
                       critic_hidden_layers,
@@ -94,12 +96,13 @@ def cli_her_td3_train(environment,
         _LOG.info("Initializing new agent")
         agent = torchrl.agents.her_td3.HerTD3(
             env=env,
-            gamma=.99,
+            eps_greedy=0.2,
+            gamma=1.0 - 1.0 / num_steps,
             tau=0.005,
             replay_k=replay_k,
             batch_size=256,
             demo_batch_size=128,
-            replay_buffer_episodes=replay_buffer_episodes,
+            replay_buffer_episodes=int(math.ceil(replay_buffer / num_steps)),
             replay_buffer_steps=num_steps,
             policy_delay=policy_delay,
             reward_scale=reward_scale,
@@ -118,8 +121,10 @@ def cli_her_td3_train(environment,
             log_dir=os.path.join(save, "log"))
 
     _LOG.info("Agent trained for %d episodes", agent.num_episodes)
-    _LOG.info("  - # steps: %d", agent.total_steps)
-    _LOG.info("  - Replay buffer: %d", agent.replay_buffer.count_steps())
+    _LOG.info("  = # steps: %d", agent.total_steps)
+    _LOG.info("  = Replay buffer: %d", agent.replay_buffer.count_steps())
+    _LOG.info("    = Max. Episodes: %d", agent.replay_buffer.max_episodes)
+    _LOG.info("    = Max. Steps: %d", agent.replay_buffer.max_steps)
 
     _LOG.debug("Actor network\n%s", str(agent.actor))
     _LOG.debug("Critic 1 network\n%s", str(agent.critic_1))
@@ -296,14 +301,14 @@ def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
                                                replay_buffer=False)
     agent.set_eval_mode()
 
-    print("Agent trained for", agent.num_episodes, "episodes")
-    print("  - # steps:", agent.total_steps)
-    print("Action space size:", agent.env.action_space)
-    print("Observation space size:", agent.env.observation_space)
+    _LOG.info("Agent trained for %d episodes", agent.num_episodes)
+    _LOG.info("  - # steps: %d", agent.total_steps)
+    _LOG.info("Action space size: %d", agent.env.action_space)
+    _LOG.info("Observation space size: %d", agent.env.observation_space)
 
     all_rewards = []
     for episode in range(num_episodes):
-        print("Running episode {}/{}".format(episode + 1, num_episodes))
+        _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
         rewards = _evaluate(agent, env, 1, num_steps, render=True)
@@ -311,8 +316,8 @@ def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
     env.close()
 
     sum_score = sum(x.sum() for x in all_rewards)
-    print("Average sum score over", len(all_rewards),
-          "runs:", sum_score / len(all_rewards))
+    _LOG.info("Avg sum score: %.5f", sum_score / len(all_rewards))
+    _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
 
     return 0
 
