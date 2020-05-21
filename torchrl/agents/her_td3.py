@@ -358,10 +358,6 @@ class HerTD3(object):
 
     @torch.no_grad()
     def compute_action(self, state):
-        # Random exploration
-        if self._train_mode and self.total_steps < self.random_steps:
-            return self.env.action_space.sample()
-
         # Pre-process
         obs = torch.from_numpy(state["observation"]).float()
         goal = torch.from_numpy(state["desired_goal"]).float()
