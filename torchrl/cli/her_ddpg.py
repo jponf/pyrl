@@ -92,6 +92,7 @@ def cli_her_ddpg_train(environment,
         _LOG.info("Initializing new agent")
         agent = torchrl.agents.her_ddpg.HERDDPG(
             env=env,
+            eps_greedy=0.2,
             gamma=1.0 - 1.0 / num_steps,
             tau=1e-3,
             replay_k=replay_k,
