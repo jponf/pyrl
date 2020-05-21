@@ -417,7 +417,7 @@ class HERDDPG(object):
         batch = self.replay_buffer.sample_batch_torch(
             sample_size=exp_size, replay_k=self.replay_k,
             reward_fn=_sample_reward_fn, device=_DEVICE)
-        if has_demo:
+        if has_demo and self.demo_batch_size > 0:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
                 sample_size=self.demo_batch_size, replay_k=0,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
