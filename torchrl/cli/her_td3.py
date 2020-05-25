@@ -49,12 +49,12 @@ _LOG = torchrl.util.logging.get_logger()
 @click.option("--policy-delay", type=int, default=2)
 @click.option("--reward-scale", type=float, default=1.0)
 @click.option("--action-noise", type=float, default=0.2)
-@click.option("--random-steps", type=int, default=2500)
 @click.option("--replay-buffer", type=int, default=1000000)
 @click.option("--actor-hidden-layers", type=int, default=3)
 @click.option("--actor-hidden-size", type=int, default=256)
 @click.option("--critic-hidden-layers", type=int, default=3)
 @click.option("--critic-hidden-size", type=int, default=256)
+@click.option("--q-filter/--no-q-filter", default=True)
 @click.option("--normalize-obs/--no-normalize-obs", default=True)
 @click.option("--render/--no-render", default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
@@ -71,12 +71,12 @@ def cli_her_td3_train(environment,
                       policy_delay,
                       reward_scale,
                       action_noise,
-                      random_steps,
                       replay_buffer,
                       actor_hidden_layers,
                       actor_hidden_size,
                       critic_hidden_layers,
                       critic_hidden_size,
+                      q_filter,
                       normalize_obs,
                       render,
                       load, save, seed):
@@ -114,10 +114,10 @@ def cli_her_td3_train(environment,
             critic_hidden_size=critic_hidden_size,
             critic_activation="relu",
             critic_lr=3e-4,
+            q_filter=q_filter,
             normalize_observations=normalize_obs,
             normalize_observations_clip=5.0,
             action_noise=action_noise,
-            random_steps=random_steps,
             log_dir=os.path.join(save, "log"))
 
     _LOG.info("Agent trained for %d episodes", agent.num_episodes)
@@ -303,21 +303,26 @@ def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
 
     _LOG.info("Agent trained for %d episodes", agent.num_episodes)
     _LOG.info("  - # steps: %d", agent.total_steps)
-    _LOG.info("Action space size: %d", agent.env.action_space)
-    _LOG.info("Observation space size: %d", agent.env.observation_space)
+    _LOG.info("Action space size: %s", str(agent.env.action_space))
+    _LOG.info("Observation space size: %s", str(agent.env.observation_space))
 
     all_rewards = []
+    all_success = []
     for episode in range(num_episodes):
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
-        rewards = _evaluate(agent, env, 1, num_steps, render=True)
+        rewards, success = _evaluate(agent, env, 1, num_steps, render=True)
         all_rewards.extend(rewards)
+        all_success.extend(success)
     env.close()
 
     sum_score = sum(x.sum() for x in all_rewards)
+    sum_success = sum(all_success)
     _LOG.info("Avg sum score: %.5f", sum_score / len(all_rewards))
-    _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
+    # _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
+    _LOG.info("Success %d of %d (%.2f)",
+              sum_success, num_episodes, sum_success / num_episodes)
 
     return 0
 
@@ -326,16 +331,18 @@ def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
 
 def _evaluate(agent, env, num_evals, num_steps, render):
     all_rewards = []
+    all_success = []
     for _ in range(num_evals):
-        rewards, done = torchrl.cli.util.evaluate(agent, env, num_steps,
-                                                  render)
+        rewards, infos, done = torchrl.cli.util.evaluate(agent, env, num_steps,
+                                                         render)
         all_rewards.append(rewards)
-
+        all_success.append(any(x.get("is_success", False) for x in infos))
         if done:
             _LOG.info("[DONE]")
+
         _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
                   " Avg. reward: %.5f, Std. reward: %.5f",
                   rewards[-1], np.sum(rewards),
                   np.mean(rewards), np.std(rewards))
 
-    return all_rewards
+    return all_rewards, all_success

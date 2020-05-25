@@ -441,7 +441,7 @@ class HerReplayBuffer(object):
         # Compute indices that will be replaced by HER goals
         her_indices = np.where(self.rand.random_sample(sample_size) < future_p)
 
-        future_offset = (e_size - s_indices).astype(np.float32)
+        future_offset = (e_size - s_indices).astype(np.float64)
         future_offset *= self.rand.random_sample(sample_size)
         future_offset = future_offset.astype(np.int32)
         f_indices = (s_indices + future_offset)
@@ -477,8 +477,9 @@ class HerReplayBuffer(object):
         For additional information see `sample_batch`.
         """
         device = device if device is not None else _DEVICE
-        return (torch.from_numpy(x).to(device)
-                for x in self.sample_batch(sample_size, replay_k, reward_fn))
+        return tuple(torch.from_numpy(x).to(device)
+                     for x in self.sample_batch(sample_size, replay_k,
+                                                reward_fn))
 
     def save(self, path):
         """Saves the replay buffer in hdf5 format into the file pointed

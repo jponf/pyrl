@@ -6,10 +6,7 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 
 import tqdm
 
@@ -70,11 +67,13 @@ class HerTD3(object):
                  critic_activation="relu",
                  critic_lr=3e-4,
                  action_penalty=1.0,
+                 q_filter=False,
                  prm_loss_weight=0.001,
                  aux_loss_weight=None,
                  normalize_observations=True,
                  normalize_observations_clip=5.0,
                  action_noise=0.2,
+                 smoothing_noise=False,
                  log_dir="her_td3_log"):
         """
         :param env: OpenAI's GoalEnv instance.
@@ -189,6 +188,7 @@ class HerTD3(object):
         self._critic_activation = critic_activation
         self._critic_lr = critic_lr
         self._action_penalty = action_penalty
+        self._q_filter = q_filter
         self._prm_loss_weight = prm_loss_weight
         if aux_loss_weight is None:
             self._aux_loss_weight = 1.0 / demo_batch_size
@@ -220,11 +220,14 @@ class HerTD3(object):
         else:
             self.action_noise = None
 
-        self.smoothing_noise = NormalActionNoise(
-            mu=np.zeros(action_dim),
-            sigma=0.1 * action_space_range,
-            clip_min=np.repeat(-0.2, action_dim),
-            clip_max=np.repeat(0.2, action_dim))
+        if smoothing_noise:
+            self.smoothing_noise = NormalActionNoise(
+                mu=np.zeros(action_dim),
+                sigma=0.1 * action_space_range,
+                clip_min=np.repeat(-0.2, action_dim),
+                clip_max=np.repeat(0.2, action_dim))
+        else:
+            self.smoothing_noise = None
 
         # Demonstration replay buffer
         self._demo_replay_buffer = None
@@ -397,11 +400,12 @@ class HerTD3(object):
         # Compute critic loss
         with torch.no_grad():
             next_action = self.target_actor(next_obs, goal).cpu().numpy()
-            next_action += self.smoothing_noise()
-            np.clip(next_action,
-                    self.actor.action_space.low,
-                    self.actor.action_space.high,
-                    out=next_action)
+            if self.smoothing_noise is not None:
+                next_action += self.smoothing_noise()
+                np.clip(next_action,
+                        self.actor.action_space.low,
+                        self.actor.action_space.high,
+                        out=next_action)
             next_action = torch.from_numpy(next_action).to(_DEVICE)
 
             target_q1 = self.target_critic_1(next_obs, goal, next_action)
@@ -440,10 +444,23 @@ class HerTD3(object):
         # Delayed policy updates
         if update_policy:
             actor_out = self.actor(obs, goal)
-            pi_loss = -self.critic_1(obs, goal, actor_out).mean()
-            pi_loss += actor_out.pow(2).mean()
+            actor_q1 = self.critic_1(obs, goal, actor_out)
+
+            pi_loss = -actor_q1.mean() + actor_out.pow(2).mean()
             if demo_mask.any():
                 cloning_loss = (actor_out[demo_mask] - action[demo_mask])
+                if self._q_filter:  # where is the demonstation action better?
+                    actor_q2 = self.critic_2(obs, goal, actor_out)
+                    min_actor_q = torch.min(actor_q1, actor_q2)
+
+                    cloning_q1 = self.critic_1(obs, goal, action)
+                    cloning_q2 = self.critic_2(obs, goal, action)
+                    cloning_q = torch.max(cloning_q1, cloning_q2)
+
+                    q_mask = cloning_q[demo_mask] > min_actor_q[demo_mask]
+                    q_mask = q_mask.flatten()
+                    cloning_loss = cloning_loss[q_mask]
+
                 prm_loss = self._prm_loss_weight * pi_loss
                 aux_loss = self._aux_loss_weight * cloning_loss.pow(2).sum()
                 pi_loss = prm_loss + aux_loss
@@ -547,11 +564,13 @@ class HerTD3(object):
             ('critic_activation', self._critic_activation),
             ('critic_lr', self._critic_lr),
             ('action_penalty', self._action_penalty),
+            ('q_filter', self._q_filter),
             ('prm_loss_weight', self._prm_loss_weight),
             ('aux_loss_weight', self._aux_loss_weight),
             ('normalize_observations', self.obs_normalizer is not None),
             ('normalize_observations_clip', self._normalize_observations_clip),
             ('action_noise', self.action_noise_arg),
+            ('smoothing_noise', self.smoothing_noise is not None),
             ('log_dir', self._summary_w.log_dir)
         ])
 

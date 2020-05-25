@@ -30,18 +30,20 @@ def evaluate(agent, env, max_steps, render):
     :return: A numpy array with the reward of each step taken by the agent.
     """
     rewards = []
+    infos = []
     done = False
 
     state = env.reset()
     for _ in range(max_steps):
         action = agent.compute_action(state)
-        next_state, reward, done, _ = env.step(action)
+        next_state, reward, done, info = env.step(action)
         if render:
             env.render()
 
         state = next_state
         rewards.append(reward)
+        infos.append(info)
         if done:
             break
 
-    return np.array(rewards), done
+    return np.array(rewards), infos, done
