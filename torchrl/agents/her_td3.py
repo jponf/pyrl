@@ -224,8 +224,8 @@ class HerTD3(object):
             self.smoothing_noise = NormalActionNoise(
                 mu=np.zeros(action_dim),
                 sigma=0.1 * action_space_range,
-                clip_min=np.repeat(-0.2, action_dim),
-                clip_max=np.repeat(0.2, action_dim))
+                clip_min=np.repeat(-0.15, action_dim),
+                clip_max=np.repeat(0.15, action_dim))
         else:
             self.smoothing_noise = None
 
@@ -326,7 +326,7 @@ class HerTD3(object):
         if self.obs_normalizer:
             self.obs_normalizer.update(state["observation"])
             self.goal_normalizer.update(state["desired_goal"])
-            # self.goal_normalizer.update(state["achieved_goal"])
+            self.goal_normalizer.update(state["achieved_goal"])
 
         # re-scale action
         action = self._to_actor_space(action)
@@ -450,14 +450,9 @@ class HerTD3(object):
             if demo_mask.any():
                 cloning_loss = (actor_out[demo_mask] - action[demo_mask])
                 if self._q_filter:  # where is the demonstation action better?
-                    actor_q2 = self.critic_2(obs, goal, actor_out)
-                    min_actor_q = torch.min(actor_q1, actor_q2)
-
                     cloning_q1 = self.critic_1(obs, goal, action)
-                    cloning_q2 = self.critic_2(obs, goal, action)
-                    cloning_q = torch.max(cloning_q1, cloning_q2)
 
-                    q_mask = cloning_q[demo_mask] > min_actor_q[demo_mask]
+                    q_mask = cloning_q1[demo_mask] > actor_q1[demo_mask]
                     q_mask = q_mask.flatten()
                     cloning_loss = cloning_loss[q_mask]
 
@@ -482,14 +477,16 @@ class HerTD3(object):
             return np.array([self.env.compute_reward(x, y, info)
                             for x, y in zip(achieved_goals, goals)])
 
-        has_demo = self._demo_replay_buffer is not None
-        exp_size = self.batch_size - (self.demo_batch_size * has_demo)
+        has_demo = (self._demo_replay_buffer is not None and
+                    self.demo_batch_size > 0)
+        demo_size = self.demo_batch_size * has_demo
+        exp_size = self.batch_size - demo_size
 
         batch = self.replay_buffer.sample_batch_torch(
             sample_size=exp_size, replay_k=self.replay_k,
             reward_fn=_sample_reward_fn, device=_DEVICE)
 
-        if has_demo and self.demo_batch_size > 0:
+        if has_demo:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
                 sample_size=self.demo_batch_size, replay_k=0,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
@@ -497,7 +494,7 @@ class HerTD3(object):
                           for x, y in zip(batch, demo_batch))
 
         exp_mask = torch.zeros(exp_size, dtype=torch.bool)
-        demo_mask = torch.ones(self.demo_batch_size, dtype=torch.bool)
+        demo_mask = torch.ones(demo_size, dtype=torch.bool)
         return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
 
     def _update_target_networks(self):
