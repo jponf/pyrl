@@ -326,7 +326,6 @@ class HerTD3(object):
         if self.obs_normalizer:
             self.obs_normalizer.update(state["observation"])
             self.goal_normalizer.update(state["desired_goal"])
-            self.goal_normalizer.update(state["achieved_goal"])
 
         # re-scale action
         action = self._to_actor_space(action)
