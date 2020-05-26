@@ -243,7 +243,7 @@ def cli_her_ddpg_test(environment, agent_path, num_episodes, num_steps,
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
-        rewards = _evaluate(agent, env, 1, num_steps, render=True)
+        rewards, success = _evaluate(agent, env, 1, num_steps, render=True)
         all_rewards.extend(rewards)
     env.close()
 
@@ -258,11 +258,12 @@ def cli_her_ddpg_test(environment, agent_path, num_episodes, num_steps,
 
 def _evaluate(agent, env, num_evals, num_steps, render):
     all_rewards = []
+    all_success = []
     for _ in range(num_evals):
-        rewards, done = torchrl.cli.util.evaluate(agent, env, num_steps,
-                                                  render)
+        rewards, infos, done = torchrl.cli.util.evaluate(agent, env, num_steps,
+                                                         render)
         all_rewards.append(rewards)
-
+        all_success.append(any(x.get("is_success", False) for x in infos))
         if done:
             _LOG.info("[DONE]")
         _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
@@ -270,4 +271,4 @@ def _evaluate(agent, env, num_evals, num_steps, render):
                   rewards[-1], np.sum(rewards),
                   np.mean(rewards), np.std(rewards))
 
-    return all_rewards
+    return all_rewards, all_success
