@@ -7,6 +7,9 @@ import pickle
 # Torch Stack
 import torch
 
+# HDF5
+import h5py
+
 # ...
 import torchrl.agents.utils
 
@@ -45,7 +48,7 @@ class StandardScaler(object):
         self.clip_range = torch.tensor(clip_range).float()
 
         self.sum = torch.zeros(self.n_features)
-        self.sumq = torch.zeros(self.n_features)
+        self.sum_sq = torch.zeros(self.n_features)
         self.count = torch.zeros(1)
         self.mean = torch.zeros(self.n_features)
         self.std = torch.ones(self.n_features)
@@ -59,16 +62,9 @@ class StandardScaler(object):
         x = torchrl.agents.utils.make_tensor(x).view(-1, self.n_features)
 
         self.sum += torch.sum(x, dim=0)
-        self.sumq += torch.sum(x.pow(2), dim=0)
+        self.sum_sq += torch.sum(x.pow(2), dim=0)
         self.count += x.shape[0]
-
-        # Running mean and standard deviation
-        self.mean = self.sum / self.count
-        self.std = ((self.sumq / self.count) - self.mean.pow(2)).sqrt()
-
-        # Avoid nan and zeros
-        self.std[torch.isnan(self.std)] = self.epsilon
-        self.std[self.std < self.epsilon] = self.epsilon
+        self._update_running_mean()
 
     def transform(self, x):
         """Perform standardization by centering and scaling."""
@@ -76,50 +72,53 @@ class StandardScaler(object):
         std = _reshape_broadcast(self.std, x).to(x.device)
         return ((x - mean) / std).clamp(-self.clip_range, self.clip_range)
 
+    def state_dict(self):
+        """Generates a dictionary with the state of the normalizer."""
+        return {"sum": self.sum, "sum_sq": self.sum_sq, "count": self.count}
+
+    def load_state_dict(self, state):
+        if isinstance(state, dict):
+            self.sum = state["sum"]
+            self.sum_sq = state["sum_sq"]
+            self.count = state["count"]
+        elif isinstance(state, list):
+            self.count = sum(o["count"] for o in state)
+            self.sum = sum(o["sum"] for o in state)
+            self.count = sum(o["sum_sq"] for o in state)
+        else:
+            raise TypeError('state must be either a dict or a list')
+
+        self._update_running_mean()
+
+    def _update_running_mean(self):
+        self.mean = self.sum / self.count
+        self.std = ((self.sum_sq / self.count) - self.mean.pow(2)).sqrt()
+
+        # Avoid nan and zeros
+        self.std[torch.isnan(self.std)] = self.epsilon
+        self.std[self.std < self.epsilon] = self.epsilon
+
     def save(self, path):
-        try:
-            os.makedirs(path)
-        except OSError as err:
-            if err.errno != errno.EEXIST:
-                raise
-
-        files = dict(mean=os.path.join(path, 'mean.pkl'),
-                     std=os.path.join(path, 'std.pkl'),
-                     sum=os.path.join(path, 'sum.pkl'),
-                     sumq=os.path.join(path, 'sumq.pkl'),
-                     count=os.path.join(path, 'count.pkl'),
-                     args=os.path.join(path, 'args.pkl'))
-
-        args = {
-            'n_features': self.n_features,
-            'clip_range': self.clip_range.item()
-        }
-
-        pickle.dump(self.mean, open(files['mean'], "wb"))
-        pickle.dump(self.std, open(files['std'], "wb"))
-        pickle.dump(self.sum, open(files['sum'], "wb"))
-        pickle.dump(self.sumq, open(files['sumq'], "wb"))
-        pickle.dump(self.count, open(files['count'], "wb"))
-        pickle.dump(args, open(files['args'], "wb"))
+        with h5py.File(path, "w") as h5f:
+            h5f.create_dataset("n_features", data=self.n_features)
+            h5f.create_dataset("epsilon", data=self.epsilon)
+            h5f.create_dataset("clip_range", data=self.clip_range)
+            h5f.create_dataset("sum", data=self.sum)
+            h5f.create_dataset("sum_sq", data=self.sum_sq)
+            h5f.create_dataset("count", data=self.count)
 
     @classmethod
     def load(cls, path):
-        files = dict(mean=os.path.join(path, 'mean.pkl'),
-                     std=os.path.join(path, 'std.pkl'),
-                     sum=os.path.join(path, 'sum.pkl'),
-                     sumq=os.path.join(path, 'sumq.pkl'),
-                     count=os.path.join(path, 'count.pkl'),
-                     args=os.path.join(path, 'args.pkl'))
-
-        args = pickle.load(open(files['args'], "rb"))
-        instance = cls(**args)
-        instance.mean = pickle.load(open(files['mean'], "rb"))
-        instance.std = pickle.load(open(files['std'], "rb"))
-        instance.sum = pickle.load(open(files['sum'], "rb"))
-        instance.sumq = pickle.load(open(files['sumq'], "rb"))
-        instance.count = pickle.load(open(files['count'], "rb"))
-
-        return instance
+        with h5py.File(path, "r") as h5f:
+            instance = cls(n_features=h5f["n_features"][()],
+                           epsilon=h5f["epsilon"][()],
+                           clip_range=h5f["clip_range"][()])
+            instance.load_state_dict(
+                dict(sum=torch.as_tensor(h5f["sum"]),
+                     sum_sq=torch.as_tensor(h5f["sum_sq"]),
+                     count=torch.as_tensor(h5f["count"][()]))
+            )
+            return instance
 
     def __repr__(self):
         fmt = "StandardScaler(n_features={!r}, clip_range={!r})"

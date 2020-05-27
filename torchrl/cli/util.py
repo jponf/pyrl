@@ -11,17 +11,14 @@ import torch
 
 ###############################################################################
 
-def initialize_seed(seed, env):
+def initialize_seed(seed):
     """Initializes the seed of different PRNGs.
 
     :param seed: Value to initialize the PRNGs.
-    :param env: Optional, if given the seed is also applied to the environment.
     """
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)
-    if env is not None:
-        env.seed(seed)
 
 
 def evaluate(agent, env, max_steps, render):
