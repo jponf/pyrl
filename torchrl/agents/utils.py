@@ -407,7 +407,7 @@ class HerReplayBuffer(object):
         self._e_idx = (self._e_idx + 1) % self._max_episodes
         self._s_idx = 0
 
-    def sample_batch(self, sample_size, replay_k, reward_fn):
+    def sample_batch(self, sample_size, replay_k, reward_fn, gamma, n_steps):
         """Samples a batch of size `sample_size`.
 
         There is only one HER sampling strategy, which is the 'future'
@@ -449,28 +449,38 @@ class HerReplayBuffer(object):
         # Replace goal with achieved goal for previously-selected
         # HER transitions (her_indices). For the other transitions,
         # keep the original goal.
-        try:
-            f_achieved_goal = self.achieved_goal[e_indices[her_indices],
-                                                 f_indices[her_indices]]
-        except IndexError:
-            max_idx = np.argmax(f_indices[her_indices])
-            print("e_size:", e_size[her_indices][max_idx])
-            print("e_indices:", e_indices[her_indices][max_idx])
-            print("s_indices:", s_indices[her_indices][max_idx])
-            print("f_offset:", future_offset[her_indices][max_idx])
-            print("f_indices:", f_indices[her_indices][max_idx])
-            raise
+        f_achieved_goal = self.achieved_goal[e_indices[her_indices],
+                                             f_indices[her_indices]]
 
         goal[her_indices] = f_achieved_goal
 
         # Recompute reward since we may have substituted the goal
         reward = reward_fn(achieved_goal, goal).reshape(reward.shape)
 
+        # N-steps Q target
+        gamma_ = np.tile(gamma, reward.shape).astype(self.reward.dtype)
+        max_indices = e_size - 1
+        max_indices[her_indices] = np.minimum(max_indices[her_indices],
+                                              f_indices[her_indices])
+
+        for i in range(1, n_steps):
+            ns_indices = s_indices + i
+            mask = ns_indices <= max_indices
+
+            ns_indices = ns_indices[mask]
+            ne_indices = e_indices[mask]
+            n_reward = reward_fn(self.achieved_goal[ne_indices, ns_indices],
+                                 goal[mask]).reshape(len(ne_indices), 1)
+
+            reward[mask] += n_reward * gamma
+            next_obs[mask] = self.next_obs[ne_indices, ns_indices]
+            gamma_[mask] *= gamma
+
         return (obs, action, next_obs, reward, terminal,
-                goal, achieved_goal)  # , next_achieved_goal)
+                goal, achieved_goal, gamma_)
 
     def sample_batch_torch(self, sample_size, replay_k,
-                           reward_fn, device=None):
+                           reward_fn, gamma, n_steps, device=None):
         """Samples a batch of size `sample_size` and transforms the
         values to torch tensors before returning them.
 
@@ -479,7 +489,7 @@ class HerReplayBuffer(object):
         device = device if device is not None else _DEVICE
         return tuple(torch.from_numpy(x).to(device)
                      for x in self.sample_batch(sample_size, replay_k,
-                                                reward_fn))
+                                                reward_fn, gamma, n_steps))
 
     def save(self, path):
         """Saves the replay buffer in hdf5 format into the file pointed
