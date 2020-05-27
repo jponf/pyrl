@@ -262,16 +262,15 @@ def cli_her_td3_optimize(environment, agent_path,
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
-@click.option("--num-steps", type=int, default=50)
 @click.option("--pause/--no-pause", default=False,
               help="Pause (or not) before running an episode.")
 @click.option("--seed", type=int, default=1234)
-def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
-                     pause, seed):
+def cli_her_td3_test(environment, agent_path, num_episodes, pause, seed):
     """Runs a previosly trained HER+TD3 agent on a gym environment."""
     _LOG.info("Loading '%s'", environment)
-    env = gym.make(environment).unwrapped
-    torchrl.cli.util.initialize_seed(seed, env)
+    env = gym.make(environment)
+    torchrl.cli.util.initialize_seed(seed)
+    env.seed(seed)
 
     _LOG.info("Loading agent from '%s'", agent_path)
     agent = torchrl.agents.her_td3.HerTD3.load(agent_path, env,
@@ -289,7 +288,7 @@ def cli_her_td3_test(environment, agent_path, num_episodes, num_steps,
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
-        rewards, success = _evaluate(agent, env, 1, num_steps, render=True)
+        rewards, success = _evaluate(agent, 1, render=True)
         all_rewards.extend(rewards)
         all_success.extend(success)
     env.close()

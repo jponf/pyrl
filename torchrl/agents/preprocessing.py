@@ -82,9 +82,9 @@ class StandardScaler(object):
             self.sum_sq = state["sum_sq"]
             self.count = state["count"]
         elif isinstance(state, list):
-            self.count = sum(o["count"] for o in state)
-            self.sum = sum(o["sum"] for o in state)
-            self.count = sum(o["sum_sq"] for o in state)
+            self.count = sum(o["count"] for o in state) / len(state)
+            self.sum = sum(o["sum"] for o in state) / len(state)
+            self.count = sum(o["sum_sq"] for o in state) / len(state)
         else:
             raise TypeError('state must be either a dict or a list')
 
