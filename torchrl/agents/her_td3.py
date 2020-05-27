@@ -51,6 +51,7 @@ class HerTD3(object):
                  eps_greedy=0.2,
                  gamma=0.95,
                  tau=0.005,
+                 n_step_q=1,
                  replay_k=2,
                  batch_size=256,
                  demo_batch_size=128,
@@ -73,7 +74,7 @@ class HerTD3(object):
                  normalize_observations=True,
                  normalize_observations_clip=5.0,
                  action_noise=0.2,
-                 smoothing_noise=False,
+                 smoothing_noise=True,
                  log_dir="her_td3_log"):
         """
         :param env: OpenAI's GoalEnv instance.
@@ -120,6 +121,7 @@ class HerTD3(object):
         obs_dim = self.env.observation_space["observation"].shape[0]
         state_dim = obs_dim + goal_dim
 
+        self.n_step_q = n_step_q
         self.replay_k = replay_k
         self.batch_size = batch_size
         self.demo_batch_size = demo_batch_size
@@ -389,7 +391,7 @@ class HerTD3(object):
 
     def _train(self, update_policy):
         batch, demo_mask = self._sample_batch()
-        (obs, action, next_obs, reward, terminal, goal, _) = batch
+        (obs, action, next_obs, reward, terminal, goal, _, gamma) = batch
 
         if self.obs_normalizer:
             obs = self.obs_normalizer.transform(obs)
@@ -410,8 +412,9 @@ class HerTD3(object):
             target_q1 = self.target_critic_1(next_obs, goal, next_action)
             target_q2 = self.target_critic_2(next_obs, goal, next_action)
             min_target_q = torch.min(target_q1, target_q2)
-            target_q = (1 - terminal.int()) * self.gamma * min_target_q
+            target_q = (1 - terminal.int()) * gamma * min_target_q
             target_q += self.reward_scale * reward
+
             self._summary_w.add_scalars(
                 "TargetQ",
                 {"Q1": target_q1.mean(),
@@ -472,9 +475,7 @@ class HerTD3(object):
 
     def _sample_batch(self):
         def _sample_reward_fn(achieved_goals, goals):
-            info = {}
-            return np.array([self.env.compute_reward(x, y, info)
-                            for x, y in zip(achieved_goals, goals)])
+            return self.env.compute_reward(achieved_goals, goals, None)
 
         has_demo = (self._demo_replay_buffer is not None and
                     self.demo_batch_size > 0)
@@ -483,11 +484,13 @@ class HerTD3(object):
 
         batch = self.replay_buffer.sample_batch_torch(
             sample_size=exp_size, replay_k=self.replay_k,
+            n_steps=self.n_step_q, gamma=self.gamma,
             reward_fn=_sample_reward_fn, device=_DEVICE)
 
         if has_demo:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
                 sample_size=self.demo_batch_size, replay_k=0,
+                n_steps=self.n_step_q, gamma=self.gamma,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
             batch = tuple(torch.cat((x, y), dim=0)
                           for x, y in zip(batch, demo_batch))
