@@ -88,6 +88,18 @@ def make_tensor(value):
     return value
 
 
+def dicts_mean(dicts):
+    """Computes the mean of multiple dictionaries.
+    """
+
+    if not all(dicts[0].keys() == d.keys() for d in dicts):
+        raise ValueError('All dictionaries must have the same keys')
+
+    keys = dicts[0].keys()
+    elems = len(dicts)
+    return {k: sum([d[k] for d in dicts]) / elems for k in keys}
+
+
 ###############################################################################
 
 class ReplayBuffer(object):

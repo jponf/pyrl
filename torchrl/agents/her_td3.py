@@ -20,9 +20,11 @@ import torch.nn.functional as F
 import torch.utils.tensorboard as tensorboard
 
 # robotrl
+import torchrl.agents.core as core
+import torchrl.agents.utils as utils
 import torchrl.util.logging
 import torchrl.util.math as umath
-
+import torchrl.util.ugym
 from .models import HerActor, HerCritic
 from .noise import NormalActionNoise
 from .preprocessing import StandardScaler
@@ -31,13 +33,14 @@ from .utils import HerReplayBuffer
 
 ###############################################################################
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+_DEVICE = "cpu"
 _LOG = torchrl.util.logging.get_logger()
 
 
 ###############################################################################
 
-class HerTD3(object):
+class HerTD3(core.HerAgent):
     """Hindsight Experience Replay Agent that uses Twin Delayed Deep
     Deterministic Policy Gradient (TD3) as the off-policy RL algorithm.
 
@@ -108,10 +111,8 @@ class HerTD3(object):
             feeding them to the network.
         :param str log_dir: Directory to output tensorboard logs.
         """
-        if not torchrl.util.ugym.is_her_env(env):
-            raise ValueError("{} is not a valid HER environment".format(env))
+        super().__init__(env)
 
-        self.env = env
         self.eps_greedy = eps_greedy
         self.gamma = gamma
         self.tau = tau
@@ -240,11 +241,7 @@ class HerTD3(object):
         self.episode_steps = 0
         self.train_steps = 0
         self._train_mode = True
-        self._summary_w = tensorboard.SummaryWriter(log_dir=log_dir)
-
-    def set_eval_mode(self):
-        """Sets the agent in evaluation mode."""
-        self.set_train_mode(mode=False)
+        self._summary_w = None
 
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
@@ -320,7 +317,7 @@ class HerTD3(object):
         """
         self.replay_buffer.save_episode()
 
-    def update(self, state, action, reward, next_state, done):
+    def update(self, state, action, reward, next_state, terminal):
         self.total_steps += 1
         self.episode_steps += 1
 
@@ -337,7 +334,7 @@ class HerTD3(object):
             action=action,
             next_obs=next_state["observation"],
             reward=reward,
-            terminal=done,
+            terminal=terminal,
             goal=next_state["desired_goal"],
             achieved_goal=next_state["achieved_goal"])
 
@@ -415,7 +412,7 @@ class HerTD3(object):
             target_q = (1 - terminal.int()) * gamma * min_target_q
             target_q += self.reward_scale * reward
 
-            self._summary_w.add_scalars(
+            self.log_scalars(
                 "TargetQ",
                 {"Q1": target_q1.mean(),
                  "Q2": target_q2.mean(),
@@ -436,12 +433,12 @@ class HerTD3(object):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self._summary_w.add_scalars("Q", {"Q1": current_q1.mean(),
-                                          "Q2": current_q2.mean(),
-                                          "Target": target_q.mean()},
-                                    self.train_steps)
-        self._summary_w.add_scalar("Loss/Critic1", loss_q1, self.train_steps)
-        self._summary_w.add_scalar("Loss/Critic2", loss_q2, self.train_steps)
+        self.log_scalars("Q", {"Q1": current_q1.mean(),
+                               "Q2": current_q2.mean(),
+                               "Target": target_q.mean()},
+                              self.train_steps)
+        self.log_scalar("Loss/Critic1", loss_q1, self.train_steps)
+        self.log_scalar("Loss/Critic2", loss_q2, self.train_steps)
 
         # Delayed policy updates
         if update_policy:
@@ -462,16 +459,16 @@ class HerTD3(object):
                 aux_loss = self._aux_loss_weight * cloning_loss.pow(2).sum()
                 pi_loss = prm_loss + aux_loss
 
-                self._summary_w.add_scalars("Loss", {"Actor_PRM": prm_loss,
-                                                     "Actor_AUX": aux_loss},
-                                            self.train_steps)
+                self.log_scalars("Loss", {"Actor_PRM": prm_loss,
+                                          "Actor_AUX": aux_loss},
+                                 self.train_steps)
 
             self.actor_optimizer.zero_grad()
             pi_loss.backward()
             self.actor_optimizer.step()
 
             self._update_target_networks()
-            self._summary_w.add_scalar("Loss/Actor", pi_loss, self.train_steps)
+            self.log_scalar("Loss/Actor", pi_loss, self.train_steps)
 
     def _sample_batch(self):
         def _sample_reward_fn(achieved_goals, goals):
@@ -529,6 +526,41 @@ class HerTD3(object):
                            min_out=self.env.action_space.low,
                            max_out=self.env.action_space.high)
 
+    # Get/Set/Update State
+    ########################
+
+    def state_dict(self):
+        return {"critic1": self.critic_1.state_dict(),
+                "critic2": self.critic_2.state_dict(),
+                "actor": self.actor.state_dict(),
+                "obs_normalizer": self.obs_normalizer.state_dict(),
+                "goal_normalizer": self.goal_normalizer.state_dict()}
+
+    def load_state_dict(self, state):
+        if isinstance(state, dict):
+            c1_state = state['critic1']
+            c2_state = state['critic2']
+            actor_state = state['actor']
+            goal_norm_state = state.get('goal_normalizer')
+            obs_norm_state = state.get('obs_normalizer')
+
+        elif isinstance(state, list):
+            c1_state = utils.dicts_mean([o['critic1'] for o in state])
+            c2_state = utils.dicts_mean([o['critic2'] for o in state])
+            actor_state = utils.dicts_mean([o['actor'] for o in state])
+            goal_norm_state = [o.get('goal_normalizer') for o in state]
+            obs_norm_state = [o.get('obs_normalizer') for o in state]
+        else:
+            raise TypeError('state must be a list or a dict')
+
+        self.critic_1.load_state_dict(c1_state)
+        self.critic_2.load_state_dict(c2_state)
+        self.actor.load_state_dict(actor_state)
+
+        if self.obs_normalizer:
+            self.obs_normalizer.load_state_dict(obs_norm_state)
+            self.goal_normalizer.load_state_dict(goal_norm_state)
+
     # Save/Load Agent
     ########################
 
@@ -570,7 +602,6 @@ class HerTD3(object):
             ('normalize_observations_clip', self._normalize_observations_clip),
             ('action_noise', self.action_noise_arg),
             ('smoothing_noise', self.smoothing_noise is not None),
-            ('log_dir', self._summary_w.log_dir)
         ])
 
         state = {
