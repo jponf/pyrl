@@ -116,7 +116,7 @@ class HerAgentTrainer(object):
     def shutdown(self, wait=True):
         """Signals workers to terminate."""
         for worker in self._workers:
-            worker.wc_pipe.put((_Message.EXIT, wait))
+            worker.wc_pipe.send((_Message.EXIT, wait))
 
         if wait:
             for i, worker in enumerate(self._workers):
@@ -127,7 +127,7 @@ class HerAgentTrainer(object):
     def synchronize(self):
         """Synchronizes the workers with the master updates."""
         for worker in self._workers:
-            worker.wc_pipe.put((_Message.SYNC, self.agent.state_dict()))
+            worker.wc_pipe.send((_Message.SYNC, self.agent.state_dict()))
 
 
 class HerTrainer(mp.Process):
@@ -168,7 +168,6 @@ class HerTrainer(mp.Process):
                 if data:  # Master is waiting
                     self.wp_pipe.send(_Message.EXIT)
             elif msg == _Message.SYNC:
-                _LOG.debug("")
                 agent.load_state_dict(data)
             else:
                 raise RuntimeError("unknown message {}".format(msg))
