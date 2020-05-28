@@ -73,38 +73,6 @@ class HerAgentTrainer(object):
                     demo_path=demo_path)
             )
 
-    def run(self, num_episodes, train_steps):
-        if not self._workers:
-            raise RuntimeError("there are no workers")
-        if not all(x.is_alive() for x in self._workers):
-            raise RuntimeError("some workers are not running, did you call"
-                               " start?")
-
-        done = [False] * len(self._workers)
-        workers_states = []
-
-        while not all(done):
-            # Execute pending workers (up to num_cpus)
-            running = []
-            for i, worker in enumerate(self._workers):
-                if not done[i]:
-                    _LOG.debug("Running environment %d on worker", i)
-                    msg = (_Message.RUN, (num_episodes, train_steps))
-                    worker.wc_pipe.send(msg)
-                    running.append(i)
-                if len(running) >= self._num_cpus:
-                    break
-
-            # Wait for workers to terminate
-            for i in running:
-                data = self._workers[i].rp_pipe.recv()
-                _LOG.debug("Environment %d episode done", i)
-                done[i] = True
-                workers_states.append(data)
-
-        _LOG.debug("Updating master agent")
-        self.agent.load_state_dict(workers_states)
-
     def start(self):
         if not self._workers:
             raise RuntimeError("agent not initialized")
@@ -124,11 +92,49 @@ class HerAgentTrainer(object):
                 while worker.rp_pipe.recv() != _Message.EXIT:
                     pass
 
-    def synchronize(self):
+    def run(self, num_episodes, train_steps):
+        if not self._workers:
+            raise RuntimeError("there are no workers")
+        if not all(x.is_alive() for x in self._workers):
+            raise RuntimeError("some workers are not running, did you call"
+                               " start?")
+
+        self._synchronize_agents()
+        self._run(num_episodes, train_steps)
+
+    def _synchronize_agents(self):
         """Synchronizes the workers with the master updates."""
         for worker in self._workers:
             worker.wc_pipe.send((_Message.SYNC, self.agent.state_dict()))
 
+    def _run(self, num_episodes, train_steps):
+        agent_states = []
+        done = [False] * len(self._workers)
+
+        while not all(done):
+            # Execute pending workers (up to num_cpus)
+            running = []
+            for i, worker in enumerate(self._workers):
+                if not done[i]:
+                    _LOG.debug("Running environment %d on worker", i)
+                    msg = (_Message.RUN, (num_episodes, train_steps))
+                    worker.wc_pipe.send(msg)
+                    running.append(i)
+                if len(running) >= self._num_cpus:
+                    break
+
+            # Wait for workers to terminate
+            for i in running:
+                state = self._workers[i].rp_pipe.recv()
+                agent_states.append(state)
+                _LOG.debug("Environment %d episodes done", i)
+                done[i] = True
+
+        _LOG.debug("Updating master agent")
+        self.agent.load_state_dict(agent_states)
+
+
+###############################################################################
 
 class HerTrainer(mp.Process):
 
@@ -163,8 +169,8 @@ class HerTrainer(mp.Process):
             msg, data = self.rc_pipe.recv()
 
             if msg == _Message.RUN:
-                self._train(agent, *data)
-            elif msg == _Message.EXIT:
+                self._run(agent, *data)
+            if msg == _Message.EXIT:
                 if data:  # Master is waiting
                     self.wp_pipe.send(_Message.EXIT)
             elif msg == _Message.SYNC:
@@ -172,33 +178,30 @@ class HerTrainer(mp.Process):
             else:
                 raise RuntimeError("unknown message {}".format(msg))
 
-    def _train(self, agent, num_episodes, train_steps):
+    def _run(self, agent, num_episodes, train_steps):
         for _ in range(num_episodes):
-            self._run_episode(agent)
+            state = agent.env.reset()
+            agent.reset()
+
+            for _ in range(agent.max_episode_steps):
+
+                action = agent.compute_action(state)
+                next_state, reward, done, info = agent.env.step(action)
+                agent.update(state=state,
+                             action=action,
+                             reward=reward,
+                             next_state=next_state,
+                             terminal=info["is_success"])
+                state = next_state
+
+                # Episode finished before exhausting the # of steps
+                if done:
+                    break
+
+            agent.end_episode()
 
         agent.train(train_steps)
         self.wp_pipe.send(agent.state_dict())
-
-    def _run_episode(self, agent):
-        state = agent.env.reset()
-        agent.reset()
-
-        for _ in range(agent.max_episode_steps):
-
-            action = agent.compute_action(state)
-            next_state, reward, done, info = agent.env.step(action)
-            agent.update(state=state,
-                         action=action,
-                         reward=reward,
-                         next_state=next_state,
-                         terminal=info["is_success"])
-            state = next_state
-
-            # Episode finished before exhausting the # of steps
-            if done:
-                break
-
-        agent.end_episode()
 
 
 def _initialize_agent(agent_cls, env_name, agent_kwargs=None, agent_path=""):
