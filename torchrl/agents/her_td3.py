@@ -17,7 +17,6 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-import torch.utils.tensorboard as tensorboard
 
 # robotrl
 import torchrl.agents.core as core
@@ -33,7 +32,7 @@ from .utils import HerReplayBuffer
 
 ###############################################################################
 
-#_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _DEVICE = "cpu"
 _LOG = torchrl.util.logging.get_logger()
 
@@ -436,7 +435,7 @@ class HerTD3(core.HerAgent):
         self.log_scalars("Q", {"Q1": current_q1.mean(),
                                "Q2": current_q2.mean(),
                                "Target": target_q.mean()},
-                              self.train_steps)
+                         self.train_steps)
         self.log_scalar("Loss/Critic1", loss_q1, self.train_steps)
         self.log_scalar("Loss/Critic2", loss_q2, self.train_steps)
 
