@@ -153,9 +153,9 @@ def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
     try:
         for epoch in range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
-            if epoch > 1:
-                _LOG.info("Synchronizing trainer")
-                trainer.synchronize()
+            # if epoch > 1:
+            #     _LOG.info("Synchronizing trainer")
+            #     trainer.synchronize()
 
             trainer.agent.set_train_mode()
             _run_train_epoch(trainer, epoch, num_cycles,

@@ -82,17 +82,21 @@ class StandardScaler(object):
             self.sum_sq = state["sum_sq"]
             self.count = state["count"]
         elif isinstance(state, list):
-            self.count = sum(o["count"] for o in state) / len(state)
             self.sum = sum(o["sum"] for o in state) / len(state)
-            self.count = sum(o["sum_sq"] for o in state) / len(state)
+            self.sum_sq = sum(o["sum_sq"] for o in state) / len(state)
+            self.count = sum(o["count"] for o in state) / len(state)
         else:
             raise TypeError('state must be either a dict or a list')
 
         self._update_running_mean()
 
     def _update_running_mean(self):
-        self.mean = self.sum / self.count
-        self.std = ((self.sum_sq / self.count) - self.mean.pow(2)).sqrt()
+        if self.count > 0:
+            self.mean = self.sum / self.count
+            self.std = ((self.sum_sq / self.count) - self.mean.pow(2)).sqrt()
+        else:
+            self.mean = torch.zeros(self.n_features)
+            self.std = torch.ones(self.n_features)
 
         # Avoid nan and zeros
         self.std[torch.isnan(self.std)] = self.epsilon

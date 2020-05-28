@@ -74,4 +74,4 @@ if __name__ == "__main__":
     main.add_command(torchrl.cli.her_td3.cli_her_td3_optimize)
     main.add_command(torchrl.cli.her_td3.cli_her_td3_test)
 
-    main(prog_name="robotrl")
+    main(prog_name="torchrl")
