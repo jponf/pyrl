@@ -12,18 +12,18 @@ import importlib
 import click
 
 # ...
-import torchrl.util.logging
-import torchrl.cli.ddpg
-import torchrl.cli.her_ddpg
-import torchrl.cli.td3
-import torchrl.cli.her_td3
-import torchrl.cli.list_envs
+import pyrl.util.logging
+import pyrl.cli.ddpg
+import pyrl.cli.her_ddpg
+import pyrl.cli.td3
+import pyrl.cli.her_td3
+import pyrl.cli.list_envs
 
 ###############################################################################
 
 click.disable_unicode_literals_warning = True
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -45,11 +45,11 @@ _LOG = torchrl.util.logging.get_logger()
 
 @click.group()
 @click.option("--verbose",
-              type=click.Choice(torchrl.util.logging.LEVELS.keys()),
+              type=click.Choice(pyrl.util.logging.LEVELS.keys()),
               help="Verbosity level",
               default="INFO")
 def main(verbose):
-    torchrl.util.logging.set_up_logger(verbose)
+    pyrl.util.logging.set_up_logger(verbose)
 
     try:
         importlib.import_module("pybullet_envs")
@@ -59,19 +59,19 @@ def main(verbose):
 
 
 if __name__ == "__main__":
-    main.add_command(torchrl.cli.list_envs.cli_list_envs)
+    main.add_command(pyrl.cli.list_envs.cli_list_envs)
 
-    main.add_command(torchrl.cli.ddpg.cli_ddpg_train)
-    main.add_command(torchrl.cli.ddpg.cli_ddpg_test)
+    main.add_command(pyrl.cli.ddpg.cli_ddpg_train)
+    main.add_command(pyrl.cli.ddpg.cli_ddpg_test)
 
-    main.add_command(torchrl.cli.her_ddpg.cli_her_ddpg_train)
-    main.add_command(torchrl.cli.her_ddpg.cli_her_ddpg_test)
+    main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_train)
+    main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_test)
 
-    main.add_command(torchrl.cli.td3.cli_td3_train)
-    main.add_command(torchrl.cli.td3.cli_td3_test)
+    main.add_command(pyrl.cli.td3.cli_td3_train)
+    main.add_command(pyrl.cli.td3.cli_td3_test)
 
-    main.add_command(torchrl.cli.her_td3.cli_her_td3_train)
-    main.add_command(torchrl.cli.her_td3.cli_her_td3_optimize)
-    main.add_command(torchrl.cli.her_td3.cli_her_td3_test)
+    main.add_command(pyrl.cli.her_td3.cli_her_td3_train)
+    main.add_command(pyrl.cli.her_td3.cli_her_td3_optimize)
+    main.add_command(pyrl.cli.her_td3.cli_her_td3_test)
 
     main(prog_name="torchrl")

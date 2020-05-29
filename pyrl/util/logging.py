@@ -4,7 +4,6 @@
 modules of the project.
 """
 
-# Python3 behaviour
 from __future__ import (
     absolute_import, print_function, division, unicode_literals
 )
@@ -28,7 +27,7 @@ def get_logger():
     """Access the pydgga package logger.
 
     The logger is not initialized and may not print anything. To ensure
-    its proper initialization, please call :func:`torchrl.util.logging.setup`.
+    its proper initialization, please call :func:`pyrl.util.logging.setup`.
 
     :return: The pydgga package logger instance.
     :rtype: logging.Logger.

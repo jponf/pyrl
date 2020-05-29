@@ -19,22 +19,21 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # robotrl
-import torchrl.agents.core as core
-import torchrl.agents.utils as utils
-import torchrl.util.logging
-import torchrl.util.math as umath
-import torchrl.util.ugym
-from .models import HerActor, HerCritic
+import pyrl.agents.core as core
+import pyrl.agents.utils as utils
+import pyrl.util.logging
+import pyrl.util.umath as umath
+import pyrl.util.ugym
+from .models import HerActorMLP, HerCriticMLP
 from .noise import NormalActionNoise
-from .preprocessing import StandardScaler
-from .utils import HerReplayBuffer
+from .preprocessing import StandardNormalizer
+from .replay_buffer import HerReplayBuffer
 
 
 ###############################################################################
 
-# _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _DEVICE = "cpu"
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -53,7 +52,6 @@ class HerTD3(core.HerAgent):
                  eps_greedy=0.2,
                  gamma=0.95,
                  tau=0.005,
-                 n_step_q=1,
                  replay_k=2,
                  batch_size=256,
                  demo_batch_size=128,
@@ -76,8 +74,7 @@ class HerTD3(core.HerAgent):
                  normalize_observations=True,
                  normalize_observations_clip=5.0,
                  action_noise=0.2,
-                 smoothing_noise=True,
-                 log_dir="her_td3_log"):
+                 smoothing_noise=True):
         """
         :param env: OpenAI's GoalEnv instance.
         :param float eps_greedy: Probability of picking a random action
@@ -108,7 +105,6 @@ class HerTD3(core.HerAgent):
         :param bool normalize_observations: Whether or not observations should
             be normalized using the running mean and standard deviation before
             feeding them to the network.
-        :param str log_dir: Directory to output tensorboard logs.
         """
         super().__init__(env)
 
@@ -121,7 +117,6 @@ class HerTD3(core.HerAgent):
         obs_dim = self.env.observation_space["observation"].shape[0]
         state_dim = obs_dim + goal_dim
 
-        self.n_step_q = n_step_q
         self.replay_k = replay_k
         self.batch_size = batch_size
         self.demo_batch_size = demo_batch_size
@@ -148,12 +143,12 @@ class HerTD3(core.HerAgent):
         self.target_actor.load_state_dict(self.actor.state_dict())
         self.target_actor.eval()
 
-        self.critic_1 = HerCritic(
+        self.critic_1 = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
             activation=critic_activation).to(_DEVICE)
-        self.target_critic_1 = HerCritic(
+        self.target_critic_1 = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
@@ -161,12 +156,12 @@ class HerTD3(core.HerAgent):
         self.target_critic_1.load_state_dict(self.critic_1.state_dict())
         self.target_critic_1.eval()
 
-        self.critic_2 = HerCritic(
+        self.critic_2 = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
             activation=critic_activation).to(_DEVICE)
-        self.target_critic_2 = HerCritic(
+        self.target_critic_2 = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
@@ -200,10 +195,10 @@ class HerTD3(core.HerAgent):
         # Normalizer
         self._normalize_observations_clip = normalize_observations_clip
         if normalize_observations:
-            self.obs_normalizer = StandardScaler(
+            self.obs_normalizer = StandardNormalizer(
                 n_features=obs_dim,
                 clip_range=normalize_observations_clip)
-            self.goal_normalizer = StandardScaler(
+            self.goal_normalizer = StandardNormalizer(
                 n_features=goal_dim,
                 clip_range=normalize_observations_clip)
         else:
@@ -304,7 +299,7 @@ class HerTD3(core.HerAgent):
                              " `demo_batch_size`")
         self._demo_replay_buffer = temp_rb
 
-    def reset(self):
+    def begin_episode(self):
         self.num_episodes += 1
         self.episode_steps = 0
         if self.action_noise is not None:
@@ -315,6 +310,32 @@ class HerTD3(core.HerAgent):
         to let the agent prepare for training.
         """
         self.replay_buffer.save_episode()
+
+    @torch.no_grad()
+    def compute_action(self, state):
+        # Pre-process
+        obs = torch.from_numpy(state["observation"]).float()
+        goal = torch.from_numpy(state["desired_goal"]).float()
+        if self.obs_normalizer:
+            obs = self.obs_normalizer.transform(obs)
+            goal = self.goal_normalizer.transform(goal)
+        obs = obs.unsqueeze_(0).to(_DEVICE)
+        goal = goal.unsqueeze_(0).to(_DEVICE)
+
+        # Compute action
+        if self._train_mode:
+            if np.random.random_sample() < self.eps_greedy:
+                action = np.random.uniform(low=self.actor.action_space.low,
+                                           high=self.actor.action_space.high)
+            else:
+                action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+                action = np.clip(action + self.action_noise(),
+                                 self.actor.action_space.low,
+                                 self.actor.action_space.high)
+        else:
+            action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+
+        return self._to_action_space(action)
 
     def update(self, state, action, reward, next_state, terminal):
         self.total_steps += 1
@@ -356,32 +377,6 @@ class HerTD3(core.HerAgent):
                 self._train(update_policy)
                 self.train_steps += 1
 
-    @torch.no_grad()
-    def compute_action(self, state):
-        # Pre-process
-        obs = torch.from_numpy(state["observation"]).float()
-        goal = torch.from_numpy(state["desired_goal"]).float()
-        if self.obs_normalizer:
-            obs = self.obs_normalizer.transform(obs)
-            goal = self.goal_normalizer.transform(goal)
-        obs = obs.unsqueeze_(0).to(_DEVICE)
-        goal = goal.unsqueeze_(0).to(_DEVICE)
-
-        # Compute action
-        if self._train_mode:
-            if np.random.random_sample() < self.eps_greedy:
-                action = np.random.uniform(low=self.actor.action_space.low,
-                                           high=self.actor.action_space.high)
-            else:
-                action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
-                action = np.clip(action + self.action_noise(),
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high)
-        else:
-            action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
-
-        return self._to_action_space(action)
-
     # Agent training
     ##########################
 
@@ -411,7 +406,7 @@ class HerTD3(core.HerAgent):
             target_q = (1 - terminal.int()) * gamma * min_target_q
             target_q += self.reward_scale * reward
 
-            self.log_scalars(
+            self._summary.add_scalars(
                 "TargetQ",
                 {"Q1": target_q1.mean(),
                  "Q2": target_q2.mean(),
@@ -432,12 +427,12 @@ class HerTD3(core.HerAgent):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self.log_scalars("Q", {"Q1": current_q1.mean(),
-                               "Q2": current_q2.mean(),
-                               "Target": target_q.mean()},
-                         self.train_steps)
-        self.log_scalar("Loss/Critic1", loss_q1, self.train_steps)
-        self.log_scalar("Loss/Critic2", loss_q2, self.train_steps)
+        self._summary.add_scalars("Q", {"Q1": current_q1.mean(),
+                                        "Q2": current_q2.mean(),
+                                        "Target": target_q.mean()},
+                                  self.train_steps)
+        self._summary.add_scalar("Loss/Critic1", loss_q1, self.train_steps)
+        self._summary.add_scalar("Loss/Critic2", loss_q2, self.train_steps)
 
         # Delayed policy updates
         if update_policy:
@@ -458,16 +453,16 @@ class HerTD3(core.HerAgent):
                 aux_loss = self._aux_loss_weight * cloning_loss.pow(2).sum()
                 pi_loss = prm_loss + aux_loss
 
-                self.log_scalars("Loss", {"Actor_PRM": prm_loss,
-                                          "Actor_AUX": aux_loss},
-                                 self.train_steps)
+                self._summary.add_scalars("Loss", {"Actor_PRM": prm_loss,
+                                                   "Actor_AUX": aux_loss},
+                                          self.train_steps)
 
             self.actor_optimizer.zero_grad()
             pi_loss.backward()
             self.actor_optimizer.step()
 
             self._update_target_networks()
-            self.log_scalar("Loss/Actor", pi_loss, self.train_steps)
+            self._summary.add_scalar("Loss/Actor", pi_loss, self.train_steps)
 
     def _sample_batch(self):
         def _sample_reward_fn(achieved_goals, goals):
@@ -688,10 +683,10 @@ class HerTD3(core.HerAgent):
 
         if instance.obs_normalizer:
             _LOG.debug("(HER-TD3) Loading observation normalizer")
-            instance.obs_normalizer = StandardScaler.load(
+            instance.obs_normalizer = StandardNormalizer.load(
                 os.path.join(path, 'obs_normalizer'))
             _LOG.debug("(HER-TD3) Loading goal normalizer")
-            instance.goal_normalizer = StandardScaler.load(
+            instance.goal_normalizer = StandardNormalizer.load(
                 os.path.join(path, 'goal_normalizer'))
 
         return instance

@@ -21,15 +21,18 @@ import gym
 import click
 
 # ...
-import torchrl.agents.ddpg
-import torchrl.util.logging
+import pyrl.agents.ddpg
+import pyrl.agents.replay_buffer
+import pyrl.cli.util
+import pyrl.util.logging
+import pyrl.util.ugym
 
 
 ###############################################################################
 
 click.disable_unicode_literals_warning = True
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -38,67 +41,76 @@ _LOG = torchrl.util.logging.get_logger()
 @click.argument("environment", type=str)
 @click.option("--num-epochs", type=int, default=500)
 @click.option("--num-episodes", type=int, default=20)
-@click.option("--num-rollout-steps", type=int, default=50)
 @click.option("--num-evals", type=int, default=1)
-@click.option("--num-eval-steps", type=int, default=50)
-@click.option("--reward-scale", type=float, default=1.0)
-@click.option("--action-penalty", type=float, default=1.0)
-@click.option("--action-noise", type=float, default=0.2)
-@click.option("--parameter-noise", type=float, default=0.0)
+@click.option("--gamma", type=float, default=.99, help="Discount factor")
+@click.option("--tau", type=float, default=.001, help="Polyak averaging")
+@click.option("--batch-size", type=int, default=128)
 @click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--normalize-obs/--no-normalize-obs", default=True)
+@click.option("--reward-scale", type=float, default=1.0)
+@click.option("--action-noise", type=str, default="ou_0.2",
+              help="Action noise, it can be 'none' or name_std, for example:"
+                   " ou_0.2 or normal_0.1.")
+@click.option("--parameter-noise", type=float, default=0.0)
+@click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
+              default="standard", help="If set to none, the observations "
+                                       "won't be normalized")
+@click.option("--obs-clip", type=float, default=5.0,
+              help="Max/Min. value to clip the observations to if they are"
+                   " being normalized.")
 @click.option("--render/--no-render", default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
 @click.option("--save", type=click.Path(), default="checkpoints/ddpg")
-@click.option("--seed", type=int, default=1234)
+@click.option("--seed", type=int, default=int(time.time()))
 def cli_ddpg_train(environment,
                    num_epochs,
                    num_episodes,
-                   num_rollout_steps,
                    num_evals,
-                   num_eval_steps,
+                   gamma,
+                   tau,
+                   batch_size,
+                   replay_buffer,
                    reward_scale,
-                   action_penalty,
                    action_noise,
                    parameter_noise,
-                   replay_buffer,
-                   normalize_obs,
+                   obs_normalizer,
+                   obs_clip,
                    render,
                    load, save, seed):
     # Initialize environment
-    print("Loading '{}'".format(environment), end=" ", file=sys.stdout)
-    sys.stdout.flush()
-    env = gym.make(environment)
-    env = gym.wrappers.FlattenObservation(env.unwrapped)
-    print("... environment loaded", file=sys.stdout)
-    _initialize_seed(seed, env)
+    _LOG.info("Loading '%s'", environment)
+    env = pyrl.util.ugym.make_flat(environment)
 
-    print("Action space:", env.action_space)
-    print("Observation space:", env.observation_space)
+    pyrl.cli.util.initialize_seed(seed)
+    env.seed(seed)
+
+    _LOG.info("Action space: %s", str(env.action_space))
+    _LOG.info("Observation space: %s", str(env.observation_space))
 
     if load:
         print("Loading agent")
-        agent = torchrl.agents.ddpg.DDPG.load(load, replay_buffer=True)
+        agent = pyrl.agents.ddpg.DDPG.load(load, replay_buffer=True)
     else:
         print("Initializing new agent")
-        agent = torchrl.agents.ddpg.DDPG(
+
+        agent = pyrl.agents.ddpg.DDPG(
             observation_space=env.observation_space,
             action_space=env.action_space,
-            gamma=.99,
-            tau=0.001,
-            batch_size=128,
+            gamma=gamma,
+            tau=tau,
+            batch_size=batch_size,
             reward_scale=reward_scale,
             replay_buffer_size=replay_buffer,
             actor_lr=0.001,
             critic_lr=0.001,
-            action_penalty=action_penalty,
-            normalize_observations=normalize_obs,
+            observation_normalizer=obs_normalizer,
+            observation_clip=obs_clip,
             action_noise=action_noise,
             parameter_noise=parameter_noise)
 
-    print("Agent trained for", agent.num_episodes, "episodes")
-    print("  - # steps:", agent.total_steps)
-    print("  - Replay buffer:", len(agent.replay_buffer))
+    _LOG.info("Agent trained for %d episodes", agent.num_episodes)
+    _LOG.info("  = # steps: %d", agent.total_steps)
+    _LOG.info("  = Replay buffer: %d", len(agent.replay_buffer))
+    _LOG.info("    = Max. Size: %d", agent.replay_buffer.max_size)
 
     _LOG.debug("Actor network\n%s", str(agent.actor))
     _LOG.debug("Critic network\n%s", str(agent.critic))
@@ -118,9 +130,9 @@ def cli_ddpg_train(environment,
                 episode_rewards = []
                 start_time = time.time()
                 state = env.reset()
-                agent.reset()
+                agent.begin_episode()
 
-                for rollout_idx in range(num_rollout_steps):
+                for rollout_idx in range(env.spec.max_episode_steps):
                     print(".", end="", file=sys.stdout)
                     sys.stdout.flush()
 
@@ -139,6 +151,7 @@ def cli_ddpg_train(environment,
 
                 # End rollouts
                 print("")
+                agent.end_episode()
                 episode_rewards = np.array(episode_rewards)
 
                 # Train (train_steps == last num rollouts)
@@ -163,7 +176,7 @@ def cli_ddpg_train(environment,
             print("----- EVALUATING")
             agent.set_eval_mode()
             for _ in range(num_evals):
-                _evaluate(num_eval_steps, agent, env, render)
+                _evaluate(env.spec.max_episode_steps, agent, env, render)
             agent.set_train_mode()
         # End epochs
     finally:
@@ -191,7 +204,7 @@ def cli_ddpg_test(environment, agent_path, num_episodes, num_steps, seed):
     _initialize_seed(seed, env)
 
     print("Loading agent from '{}'".format(agent_path))
-    agent = torchrl.agents.ddpg.DDPG.load(agent_path, replay_buffer=False)
+    agent = pyrl.agents.ddpg.DDPG.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
     print("Agent trained for", agent.num_episodes, "episodes")
@@ -203,7 +216,7 @@ def cli_ddpg_test(environment, agent_path, num_episodes, num_steps, seed):
     all_rewards = []
     for episode in range(num_episodes):
         print("Running episode {}/{}".format(episode + 1, num_episodes))
-        raw_input("Press enter to start episode")
+        input("Press enter to start episode")
         rewards = _evaluate(num_steps, agent, env, render=True)
         all_rewards.append(rewards)
     env.close()

@@ -21,19 +21,19 @@ import torch.nn.functional as F
 import torch.utils.tensorboard as tensorboard
 
 # robotrl
-import torchrl.util.logging
-import torchrl.util.math as umath
+import pyrl.util.logging
+import pyrl.util.umath as umath
 
-from .models import Actor, Critic
+from .models import ActorMLP, CriticMLP
 from .noise import NormalActionNoise
-from .preprocessing import StandardScaler
-from .utils import ReplayBuffer
+from .preprocessing import StandardNormalizer
+from .replay_buffer import FlatReplayBuffer
 
 
 ###############################################################################
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -105,9 +105,9 @@ class TD3(object):
         self.batch_size = batch_size
         self.policy_delay = policy_delay
         self.reward_scale = reward_scale
-        self.replay_buffer = ReplayBuffer(state_dim=state_dim,
-                                          action_dim=action_dim,
-                                          max_size=replay_buffer_size)
+        self.replay_buffer = FlatReplayBuffer(state_dim=state_dim,
+                                              action_dim=action_dim,
+                                              max_size=replay_buffer_size)
 
         # Build model (A2C architecture)
         self.actor = Actor(state_dim, action_dim,
@@ -161,7 +161,7 @@ class TD3(object):
 
         # Normalizer
         if normalize_observations:
-            self.obs_normalizer = StandardScaler(
+            self.obs_normalizer = StandardNormalizer(
                 n_features=state_dim,
                 clip_range=5.0)
         else:
@@ -452,7 +452,7 @@ class TD3(object):
 
         if instance.obs_normalizer:
             _LOG.debug("(TD3) Loading observations normalizer")
-            instance.obs_normalizer = StandardScaler.load(
+            instance.obs_normalizer = StandardNormalizer.load(
                 os.path.join(path, 'obs_normalizer'))
 
         return instance

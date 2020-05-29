@@ -1,21 +1,42 @@
 # -*- coding: utf-8 -*-
 
+import abc
+import six
+
 import numpy as np
 
 
 ###############################################################################
 
+@six.add_metaclass(abc.ABCMeta)
 class ActionNoise(object):
 
-    def __call__(self):
-        raise NotImplementedError()
-
+    @abc.abstractmethod
     def reset(self):
         """Prepares the action noise strategy to run a new episode."""
+
+    @abc.abstractmethod
+    def __call__(self):
+        """Computes the noise for the next action."""
         raise NotImplementedError()
 
 
-class NormalActionNoise(object):
+class NullActionNoise(ActionNoise):
+
+    def __init__(self, action_shape):
+        self._noise = np.zeros(action_shape)
+
+    def reset(self):
+        pass
+
+    def __call__(self):
+        return self._noise
+
+    def __repr__(self):
+        return "NullActionNoise(action_shape={!r}".format(self._noise.shape)
+
+
+class NormalActionNoise(ActionNoise):
 
     def __init__(self, mu, sigma,
                  clip_min=None,
