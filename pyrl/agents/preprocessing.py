@@ -1,19 +1,84 @@
 # -*- coding: utf-8 -*-
 
+import abc
+import six
+
 # Torch Stack
 import torch
 
 # HDF5
 import h5py
 
-# ...
-import torchrl.agents.utils
-
 
 ###############################################################################
-# Reference: https://github.com/openai/baselines/her/
 
-class StandardScaler(object):
+@six.add_metaclass(abc.ABCMeta)
+class Normalizer(object):
+
+    @abc.abstractmethod
+    def transform(self, x):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def update(self, x):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def state_dict(self):
+        """Returns a dictionary containing the whole state of the normalizer.
+
+        :return: A dictionary containing the whole state of the normalizer.
+        :rtype: dict
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def load_state_dict(self, state):
+        """Copies the state into this agent. Any additional key in the
+        dictionary is ignored.
+
+        Unless you know what you are doing you should only pass dictionaries
+        returned by `state_dict()`.
+
+        :param state: A dict containing a valid agent state.
+
+        :raise KeyError: If a required key is not in the dictionary.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def save(self, path):
+        """Saves the normalizer in the given `path`.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def load(cls, path, *args, **kwargs):
+        raise NotImplementedError()
+
+
+class IdentityNormalizer(Normalizer):
+
+    def transform(self, x):
+        return x
+
+    def update(self, x):
+        pass
+
+    def state_dict(self):
+        return {}
+
+    def load_state_dict(self, state):
+        pass
+
+    def save(self, path):
+        pass
+
+    def load(cls, path):
+        return cls()
+
+
+class StandardNormalizer(Normalizer):
     """Standardize features by removing the mean and scaling to unit variance.
 
     The standrad score of a sample 'x' is calculated as:
@@ -30,7 +95,7 @@ class StandardScaler(object):
     """
 
     def __init__(self,
-                 n_features,
+                 shape,
                  epsilon=1e-4,
                  clip_range=float('inf')):
         """
@@ -39,15 +104,15 @@ class StandardScaler(object):
         :param float clip_range: clip standardized values to be in
             range [-clip_range, clip_range] (default: inf tensor).
         """
-        self.n_features = n_features
+        self.shape = shape
         self.epsilon = epsilon
-        self.clip_range = torch.tensor(clip_range).float()
+        self.clip_range = torch.as_tensor(clip_range).float()
 
-        self.sum = torch.zeros(self.n_features)
-        self.sum_sq = torch.zeros(self.n_features)
+        self.sum = torch.zeros(shape)
+        self.sum_sq = torch.zeros(shape)
         self.count = torch.zeros(1)
-        self.mean = torch.zeros(self.n_features)
-        self.std = torch.ones(self.n_features)
+        self.mean = torch.zeros(shape)
+        self.std = torch.ones(shape)
 
     def update(self, x):
         """Online computation of mean and std on 'x' for later scaling.
@@ -55,7 +120,7 @@ class StandardScaler(object):
         :param x: The data used to compute the mean and standard deviation
             user for later scaling along the features axis.
         """
-        x = torchrl.agents.utils.make_tensor(x).view(-1, self.n_features)
+        x = torch.as_tensor(x)
 
         self.sum += torch.sum(x, dim=0)
         self.sum_sq += torch.sum(x.pow(2), dim=0)
@@ -100,7 +165,7 @@ class StandardScaler(object):
 
     def save(self, path):
         with h5py.File(path, "w") as h5f:
-            h5f.create_dataset("n_features", data=self.n_features)
+            h5f.create_dataset("shape", data=self.shape)
             h5f.create_dataset("epsilon", data=self.epsilon)
             h5f.create_dataset("clip_range", data=self.clip_range)
             h5f.create_dataset("sum", data=self.sum)
@@ -110,7 +175,7 @@ class StandardScaler(object):
     @classmethod
     def load(cls, path):
         with h5py.File(path, "r") as h5f:
-            instance = cls(n_features=h5f["n_features"][()],
+            instance = cls(shape=tuple(h5f["shape"]),
                            epsilon=h5f["epsilon"][()],
                            clip_range=h5f["clip_range"][()])
             instance.load_state_dict(
@@ -121,11 +186,11 @@ class StandardScaler(object):
             return instance
 
     def __repr__(self):
-        fmt = "StandardScaler(n_features={!r}, clip_range={!r})"
+        fmt = "StandardNormalizer(n_features={!r}, clip_range={!r})"
         return fmt.format(self.n_features, self.clip_range)
 
     def __str__(self):
-        fmt = "StandardScaler {{\n    mean={}\n    std={}\n}}"
+        fmt = "StandardNormalizer {{\n    mean={}\n    std={}\n}}"
         return fmt.format(self.mean, self.std)
 
 

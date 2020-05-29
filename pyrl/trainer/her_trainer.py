@@ -9,12 +9,12 @@ import random
 import gym
 
 # ...
-import torchrl.util.logging
+import pyrl.util.logging
 
 
 ###############################################################################
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -170,7 +170,7 @@ class HerTrainer(mp.Process):
 
             if msg == _Message.RUN:
                 self._run(agent, *data)
-            if msg == _Message.EXIT:
+            elif msg == _Message.EXIT:
                 if data:  # Master is waiting
                     self.wp_pipe.send(_Message.EXIT)
             elif msg == _Message.SYNC:
@@ -181,7 +181,7 @@ class HerTrainer(mp.Process):
     def _run(self, agent, num_episodes, train_steps):
         for _ in range(num_episodes):
             state = agent.env.reset()
-            agent.reset()
+            agent.begin_episode()
 
             for _ in range(agent.max_episode_steps):
 

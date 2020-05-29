@@ -1,120 +1,34 @@
-# -*- coding: utf-8 -*-
+# -*- codint: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+import six
 
-# SciPy
+# SciPy Stack
 import numpy as np
 
 # HDF5
 import h5py
 
-# Torch
+# PyTorch
 import torch
 
-# ...
-from .noise import NormalActionNoise, OUActionNoise
-
 
 ###############################################################################
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-###############################################################################
-
-_ACTIVATIONS = {
-    "leakyrelu": torch.nn.LeakyReLU,
-    "relu": torch.nn.ReLU,
-    "sigmoid": torch.nn.Sigmoid,
-    "tanh": torch.nn.Tanh
-}
-
-
-def get_activation_layer(name):
-    """Get an activation layer given its name.
-
-    :param name: Name of the activation layer, valid values are: leakyrelu,
-        relu, sigmoid and tanh.
-    """
-    try:
-        return _ACTIVATIONS[name]()
-    except KeyError:
-        msg = "invalid layer '{}', valid options are: {}"
-        raise ValueError(
-            msg.format(name, ", ".join(sorted(_ACTIVATIONS.keys()))))
-
-
-_ACTION_NOISES = {
-    "ou": OUActionNoise,
-    "normal": NormalActionNoise
-}
-
-
-def get_action_noise(name, action_space):
-    """Get an action noise given its name and standard deviation.
-
-    :param name: Name and standard deviation in the format <name>_<stddev>,
-        for example: ou_0.2 or normal_0.1.
-    """
-    noise, stddev = name.split('_')
-    try:
-        stddev = float(stddev)
-    except ValueError:
-        raise ValueError("unable to parse standard deviation value,"
-                         " expected <noise>_<stddev>")
-
-    try:
-        action_range = action_space.high - action_space.low
-        return _ACTION_NOISES[noise](
-            mu=np.zeros(action_space.shape),
-            sigma=action_range * stddev)
-    except KeyError:
-        raise ValueError("unknown noise type '{}'".format(name))
-
-
-def make_tensor(value):
-    """Creates a tensor from `value` if it is not one already.
-
-    If `value` is not a Tensor, it uses `torch.from_numpy` when it is
-    a numpy array and `torch.tensor` otherwise. If `value` is a Tensor
-    `value` itself is returned.
-    """
-    if isinstance(value, np.ndarray):
-        return torch.from_numpy(value)
-    elif not isinstance(value, torch.Tensor):
-        return torch.tensor(value)
-
-    return value
-
-
-def dicts_mean(dicts):
-    """Computes the mean of multiple dictionaries.
+class FlatReplayBuffer(object):
+    """Replay buffer that stores transitions from one state to another.
     """
 
-    if not all(dicts[0].keys() == d.keys() for d in dicts):
-        raise ValueError('All dictionaries must have the same keys')
+    def __init__(self, state_shape, action_shape, max_size,
+                 dtype=np.float32, rand=None):
+        # If shapes are integers transform them to tuples
+        if isinstance(state_shape, six.integer_types):
+            state_shape = (state_shape,)
+        if isinstance(action_shape, six.integer_types):
+            action_shape = (action_shape,)
 
-    keys = dicts[0].keys()
-    elems = len(dicts)
-    return {k: sum([d[k] for d in dicts]) / elems for k in keys}
-
-
-###############################################################################
-
-class ReplayBuffer(object):
-    """Replay buffer that stores transitions from one state to another
-    after taking an action, as well as the reward for performing the
-    action and whether or not the resulting state was terminal or not.
-    """
-
-    def __init__(self, state_dim, action_dim,
-                 max_size=500000,
-                 dtype=np.float32,
-                 rand=None):
-        self.state = np.empty((max_size, state_dim), dtype=dtype)
-        self.action = np.empty((max_size, action_dim), dtype=dtype)
-        self.next_state = np.empty((max_size, state_dim), dtype=dtype)
+        self.state = np.empty((max_size,) + state_shape, dtype=dtype)
+        self.action = np.empty((max_size,) + action_shape, dtype=dtype)
+        self.next_state = np.empty((max_size,) + state_shape, dtype=dtype)
         self.reward = np.empty((max_size, 1), dtype=dtype)
         self.terminal = np.empty((max_size, 1), dtype=np.bool)
 
@@ -134,7 +48,7 @@ class ReplayBuffer(object):
         if isinstance(indices, np.ndarray):
             if (indices < 0).any() or (indices >= self._size).any():
                 raise IndexError("indices out of replay buffer bounds")
-        elif isinstance(indices, (int)):
+        elif isinstance(indices, six.integer_types):
             if 0 <= indices < self._size:
                 raise IndexError("index out of replay buffer bounds")
 
@@ -180,8 +94,8 @@ class ReplayBuffer(object):
         """Samples a batch of size `sample_size`.
 
         :param sample_size: Size of the sampled batch.
-        :return: A tuple containing the batch data as numpy
-            arrays: (state, action, next_state, reward, terminal).
+        :return: A tuple containing the batch data as numpy arrays:
+            (state, action, next_state, reward, terminal).
         """
         indices = self.rand.randint(low=0, high=self._size,
                                     size=sample_size)
@@ -192,7 +106,7 @@ class ReplayBuffer(object):
                 self.reward[indices],
                 self.terminal[indices])
 
-    def sample_batch_torch(self, sample_size, device=None):
+    def sample_batch_torch(self, sample_size, device="cpu"):
         """Samples a batch of size `sample_size`.
 
         :param sample_size: Size of the sampled batch.
@@ -200,7 +114,6 @@ class ReplayBuffer(object):
         :return: A tuple containing the batch data as torch
             tensors: (state, action, next_state, reward, terminal).
         """
-        device = device if device is not None else _DEVICE
         return (torch.from_numpy(x).to(device)
                 for x in self.sample_batch(sample_size))
 
@@ -242,24 +155,248 @@ class ReplayBuffer(object):
             assert self.terminal[:copy_size].base is self.terminal
 
             # copy datasets into the numpy arrays
-            temp = np.array(h5f["state"])
-            np.copyto(self.state[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["action"])
-            np.copyto(self.action[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["next_state"])
-            np.copyto(self.next_state[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["reward"])
-            np.copyto(self.reward[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["terminal"])
-            np.copyto(self.terminal[:copy_size], temp[copy_indices])
+            np.copyto(self.state[:copy_size],
+                      np.array(h5f["state"])[copy_indices])
+            np.copyto(self.action[:copy_size],
+                      np.array(h5f["action"])[copy_indices])
+            np.copyto(self.next_state[:copy_size],
+                      np.array(h5f["next_state"])[copy_indices])
+            np.copyto(self.reward[:copy_size],
+                      np.array(h5f["reward"])[copy_indices])
+            np.copyto(self.terminal[:copy_size],
+                      np.array(h5f["terminal"])[copy_indices])
 
             # set index and size accordingly
             self._index = copy_size % self._max_size
             self._size = copy_size
+
+
+###############################################################################
+
+class EpisodicReplayBuffer(object):
+    """Replay buffer that stores transitions from one state to another
+    in an episodic fashion.
+    """
+
+    def __init__(self, state_shape, action_shape, max_episodes, max_steps,
+                 dtype=np.float32, rand=None):
+        assert max_steps > 0
+        assert max_episodes > 0
+        # Check memory size and warn?
+
+        # If shapes are integers transform them to tuples
+        if isinstance(state_shape, six.integer_types):
+            state_shape = (state_shape,)
+        if isinstance(action_shape, six.integer_types):
+            action_shape = (action_shape,)
+
+        arr_shape = (max_episodes, max_steps)
+        self.state = np.empty(arr_shape + state_shape, dtype=dtype)
+        self.action = np.empty(arr_shape + action_shape, dtype=dtype)
+        self.next_state = np.empty(arr_shape + state_shape, dtype=dtype)
+        self.reward = np.empty(arr_shape + (1,), dtype=dtype)
+        self.terminal = np.empty(arr_shape + (1,), dtype=np.bool)
+
+        # Temporary buffer to store the running episode
+        self._state = np.empty((max_steps,) + state_shape, dtype=dtype)
+        self._action = np.empty((max_steps,) + action_shape, dtype=dtype)
+        self._next_state = np.empty((max_steps,) + state_shape, dtype=dtype)
+        self._reward = np.empty((max_steps, 1), dtype=dtype)
+        self._terminal = np.empty((max_steps, 1), dtype=np.bool)
+
+        self._max_episodes = max_episodes
+        self._max_steps = max_steps
+        self._e_idx = 0
+        self._s_idx = 0
+        self._b_size = 0                                       # buffer size
+        self._e_size = np.zeros(max_episodes, dtype=np.int32)  # episode size
+
+        if rand is not None:
+            self.rand = rand
+        else:
+            self.rand = np.random.RandomState()
+
+    @property
+    def state_shape(self):
+        return self.state.shape[2:]
+
+    @property
+    def action_shape(self):
+        return self.action.shape[2:]
+
+    @property
+    def max_episodes(self):
+        return self._max_episodes
+
+    @property
+    def max_steps(self):
+        return self._max_steps
+
+    @property
+    def num_episodes(self):
+        return self._b_size
+
+    def count_steps(self):
+        return self._e_size.sum()
+
+    def clear(self):
+        """Removes all elements from the replay buffer."""
+        self._e_idx = 0
+        self._s_idx = 0
+        self._b_size = 0
+        self._e_size = np.zeros(self._max_episodes)
+
+    def add(self, state, action, next_state, reward, terminal):
+        """Adds the transition to the current episode temporary buffer.
+
+        :raises IndexError: If the maximum number of steps per episode
+            have already been added to the temporary buffer.
+        """
+        self._state[self._s_idx] = state
+        self._action[self._s_idx] = action
+        self._next_state[self._s_idx] = next_state
+        self._reward[self._s_idx] = reward
+        self._terminal[self._s_idx] = terminal
+
+        self._s_idx += 1
+
+    def save_episode(self):
+        """Saves the current episode temporary buffer into the replay
+        buffer and prepares the temporary buffer for a new episode.
+        """
+        self.state[self._e_idx] = self._state
+        self.action[self._e_idx] = self._action
+        self.next_state[self._e_idx] = self._next_state
+        self.reward[self._e_idx] = self._reward
+        self.terminal[self._e_idx] = self._terminal
+
+        self._e_size[self._e_idx] = self._s_idx
+        self._b_size = min(self._b_size + 1, self._max_episodes)
+        self._e_idx = (self._e_idx + 1) % self._max_episodes
+        self._s_idx = 0
+
+    def get_episode(self, index):
+        """Gets all the transitions of an episode.
+
+        :param index: Episode index.
+
+        :return: The transitions of an episode as a tuple of arrays
+            (obs, actions, next_obs, rewards, terminal, goal, achieved_goal).
+        """
+        if index < 0 or index >= self._b_size:
+            raise IndexError("index of out bounds")
+
+        e_size = self._e_size[index]
+        return (self.state[index][:e_size],
+                self.action[index][:e_size],
+                self.next_state[index][:e_size],
+                self.reward[index][:e_size],
+                self.terminal[index][:e_size])
+
+    def sample_batch(self, sample_size):
+        """Samples a batch of size `sample_size`.
+
+        :param sample_size: Size of the sampled batch.
+        :return: A tuple containing the batch data as numpy arrays
+            (state, action, next_state, reward, terminal).
+        """
+        e_indices = self.rand.randint(low=0, high=self._b_size,
+                                      size=sample_size)
+        e_size = self._e_size[e_indices]
+        s_indices = self.rand.random_sample(sample_size) * e_size
+        s_indices = s_indices.astype(np.int32)
+
+        # Create batch from episode and step indices
+        state = self.state[e_indices, s_indices].copy()
+        action = self.action[e_indices, s_indices].copy()
+        next_state = self.next_state[e_indices, s_indices].copy()
+        reward = self.reward[e_indices, s_indices].copy()
+        terminal = self.terminal[e_indices, s_indices].copy()
+
+        return (state, action, next_state, reward, terminal)
+
+    def sample_batch_torch(self, sample_size, device="cpu"):
+        """Samples a batch of size `sample_size` and transforms the
+        values to torch tensors before returning them.
+
+        For additional information see `sample_batch`.
+        """
+        return tuple(torch.from_numpy(x).to(device)
+                     for x in self.sample_batch(sample_size))
+
+    def save(self, path):
+        """Saves the replay buffer in hdf5 format into the file pointed
+        by `path`.
+
+        :param path: Path to the file where to save the replay buffer.
+        """
+        with h5py.File(path, "w") as h5f:
+            meta = (self._max_episodes, self._max_steps,
+                    self._e_idx, self._b_size)
+            h5f.create_dataset("meta", data=meta)
+            h5f.create_dataset("e_size", data=self._e_size)
+
+            h5f.create_dataset("state", data=self.state)
+            h5f.create_dataset("action", data=self.action)
+            h5f.create_dataset("next_state", data=self.next_state)
+            h5f.create_dataset("reward", data=self.reward)
+            h5f.create_dataset("terminal", data=self.terminal)
+
+    def load(self, path):
+        """Loads the replay buffer from the file pointed by `path`.
+
+        :param path: Path to the file that contains a saved replay buffer.
+        """
+        with h5py.File(path, "r") as h5f:
+            max_episodes, max_steps, e_idx, b_size = h5f["meta"]
+            e_size = np.array(h5f["e_size"])
+
+            if self._max_steps < max_steps:
+                raise ValueError("cannot load the replay buffer because it"
+                                 " has too many steps per episode")
+
+            # compute copy size and copy "order"
+            copy_size = min(b_size, self._max_episodes)
+            if b_size > copy_size:           # old size is bigger than current
+                e_idx += b_size - copy_size  # capacity, correct index
+            copy_indices = (np.arange(b_size) + e_idx) % b_size
+            copy_indices = copy_indices[:copy_size]
+
+            # check that we copy into a view
+            assert self.state[:copy_size].base is self.obs
+            assert self.action[:copy_size].base is self.action
+            assert self.next_state[:copy_size].base is self.next_obs
+            assert self.reward[:copy_size].base is self.reward
+            assert self.terminal[:copy_size].base is self.terminal
+            assert self._e_size[:copy_size].base is self._e_size
+
+            # copy datasets into the numpy arrays
+            np.copyto(self.state[:copy_size],
+                      np.array(h5f["state"])[copy_indices])
+            np.copyto(self.action[:copy_size],
+                      np.array(h5f["action"])[copy_indices])
+            np.copyto(self.next_state[:copy_size],
+                      np.array(h5f["next_state"])[copy_indices])
+            np.copyto(self.reward[:copy_size],
+                      np.array(h5f["reward"])[copy_indices])
+            np.copyto(self.terminal[:copy_size],
+                      np.array(h5f["terminal"])[copy_indices])
+
+            # set index and size accordingly
+            self._e_idx = copy_size % self._max_episodes
+            # self._s_idx = 0
+            self._b_size = copy_size
+            np.copyto(self._e_size[:copy_size], e_size[copy_indices])
+
+    def __repr__(self):
+        fmt = ("ReplayBuffer(state_shape={:!r}, action_shape={:!r},"
+               " max_episodes={:!r}, max_steps={:!r}, dtype={:!r})")
+        return fmt.format(self.state.shape[2:], self.action.shape[2:],
+                          self._max_episodes, self._max_steps,
+                          self.state.dtype)
+
+    def __str__(self):
+        return repr(self)
 
 
 ###############################################################################
@@ -269,9 +406,9 @@ class HerReplayBuffer(object):
     required to implement the sampling techniques for Hindsight Experience
     Replay.
 
-    :param obs_dim: Observation dimension.
-    :param goal_dim: Goal dimension.
-    :param action_dim: Action dimension.
+    :param obs_shape: Observation dimension.
+    :param goal_shape: Goal dimension.
+    :param action_shape: Action dimension.
     :param max_steps: Maximum number of steps per episode.
     :param max_episodes: Maximum number of episodes, if exceeded the oldest
         ones will be dropped.
@@ -279,34 +416,41 @@ class HerReplayBuffer(object):
     :param rand: Numpy's random number generator.
     """
 
-    def __init__(self, obs_dim, action_dim, goal_dim,
-                 max_episodes, max_steps,
-                 dtype=np.float32,
+    def __init__(self, state_shape, action_shape, goal_shape,
+                 max_episodes, max_steps, dtype=np.float32,
                  rand=None):
         assert max_steps > 0
         assert max_episodes > 0
         # Check memory size and warn?
 
+        # If shapes are integers transform them to tuples
+        if isinstance(state_shape, six.integer_types):
+            state_shape = (state_shape,)
+        if isinstance(action_shape, six.integer_types):
+            action_shape = (action_shape,)
+        if isinstance(goal_shape, six.integer_types):
+            goal_shape = (goal_shape,)
+
         # Replay Buffer
         arr_dim = (max_episodes, max_steps)
-        self.obs = np.empty(arr_dim + (obs_dim,), dtype=dtype)
-        self.action = np.empty(arr_dim + (action_dim,), dtype=dtype)
-        self.next_obs = np.empty(arr_dim + (obs_dim,), dtype=dtype)
+        self.obs = np.empty(arr_dim + state_shape, dtype=dtype)
+        self.action = np.empty(arr_dim + action_shape, dtype=dtype)
+        self.next_obs = np.empty(arr_dim + state_shape, dtype=dtype)
         self.reward = np.empty(arr_dim + (1,), dtype=dtype)
         self.terminal = np.empty(arr_dim + (1,), dtype=np.bool)
 
-        self.goal = np.empty(arr_dim + (goal_dim,), dtype=dtype)
-        self.achieved_goal = np.empty(arr_dim + (goal_dim,), dtype=dtype)
+        self.goal = np.empty(arr_dim + goal_shape, dtype=dtype)
+        self.achieved_goal = np.empty(arr_dim + goal_shape, dtype=dtype)
 
         # Temporary buffer to store episode data
-        self._obs = np.empty((max_steps, obs_dim), dtype=dtype)
-        self._action = np.empty((max_steps, action_dim), dtype=dtype)
-        self._next_obs = np.empty((max_steps, obs_dim), dtype=dtype)
+        self._obs = np.empty((max_steps, *state_shape), dtype=dtype)
+        self._action = np.empty((max_steps, *action_shape), dtype=dtype)
+        self._next_obs = np.empty((max_steps, *state_shape), dtype=dtype)
         self._reward = np.empty((max_steps, 1), dtype=dtype)
         self._terminal = np.empty((max_steps, 1), dtype=np.bool)
 
-        self._goal = np.empty((max_steps, goal_dim), dtype=dtype)
-        self._achieved_goal = np.empty((max_steps, goal_dim), dtype=dtype)
+        self._goal = np.empty((max_steps, *goal_shape), dtype=dtype)
+        self._achieved_goal = np.empty((max_steps, *goal_shape), dtype=dtype)
 
         self._max_episodes = max_episodes
         self._max_steps = max_steps
@@ -419,7 +563,7 @@ class HerReplayBuffer(object):
         self._e_idx = (self._e_idx + 1) % self._max_episodes
         self._s_idx = 0
 
-    def sample_batch(self, sample_size, replay_k, reward_fn, gamma, n_steps):
+    def sample_batch(self, sample_size, replay_k, reward_fn):
         """Samples a batch of size `sample_size`.
 
         There is only one HER sampling strategy, which is the 'future'
@@ -429,9 +573,8 @@ class HerReplayBuffer(object):
         :param sample_size: Size of the sampled batch.
         :param replay_k: Ratio between HER replays and regular replays,
             e.g: k = 4 -> 4 times as many HER replays as regular replays
-        :return: A tuple containing the batch data as numpy
-            arrays: (obs, action, next_obs, reward, terminal,
-                     goal, achieved_goal).
+        :return: A tuple containing the batch data as numpy arrays:
+            (obs, action, next_obs, reward, terminal, goal, achieved_goal).
         """
         future_p = 1.0 - (1.0 / (1.0 + replay_k))
 
@@ -469,36 +612,16 @@ class HerReplayBuffer(object):
         # Recompute reward since we may have substituted the goal
         reward = reward_fn(achieved_goal, goal).reshape(reward.shape)
 
-        # N-steps Q target
-        gamma_ = np.tile(gamma, reward.shape).astype(self.reward.dtype)
-        max_indices = e_size - 1
-        max_indices[her_indices] = np.minimum(max_indices[her_indices],
-                                              f_indices[her_indices])
-
-        for i in range(1, n_steps):
-            ns_indices = s_indices + i
-            mask = ns_indices <= max_indices
-
-            ns_indices = ns_indices[mask]
-            ne_indices = e_indices[mask]
-            n_reward = reward_fn(self.achieved_goal[ne_indices, ns_indices],
-                                 goal[mask]).reshape(len(ne_indices), 1)
-
-            reward[mask] += n_reward * gamma
-            next_obs[mask] = self.next_obs[ne_indices, ns_indices]
-            gamma_[mask] *= gamma
-
         return (obs, action, next_obs, reward, terminal,
-                goal, achieved_goal, gamma_)
+                goal, achieved_goal)
 
     def sample_batch_torch(self, sample_size, replay_k,
-                           reward_fn, gamma, n_steps, device=None):
+                           reward_fn, gamma, n_steps, device="cpu"):
         """Samples a batch of size `sample_size` and transforms the
         values to torch tensors before returning them.
 
         For additional information see `sample_batch`.
         """
-        device = device if device is not None else _DEVICE
         return tuple(torch.from_numpy(x).to(device)
                      for x in self.sample_batch(sample_size, replay_k,
                                                 reward_fn, gamma, n_steps))
@@ -555,26 +678,20 @@ class HerReplayBuffer(object):
             assert self._e_size[:copy_size].base is self._e_size
 
             # copy datasets into the numpy arrays
-            temp = np.array(h5f["obs"])
-            np.copyto(self.obs[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["action"])
-            np.copyto(self.action[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["next_obs"])
-            np.copyto(self.next_obs[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["reward"])
-            np.copyto(self.reward[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["terminal"])
-            np.copyto(self.terminal[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["goal"])
-            np.copyto(self.goal[:copy_size], temp[copy_indices])
-
-            temp = np.array(h5f["achieved_goal"])
-            np.copyto(self.achieved_goal[:copy_size], temp[copy_indices])
+            np.copyto(self.obs[:copy_size],
+                      np.array(h5f["obs"])[copy_indices])
+            np.copyto(self.action[:copy_size],
+                      np.array(h5f["action"])[copy_indices])
+            np.copyto(self.next_obs[:copy_size],
+                      np.array(h5f["next_obs"])[copy_indices])
+            np.copyto(self.reward[:copy_size],
+                      np.array(h5f["reward"])[copy_indices])
+            np.copyto(self.terminal[:copy_size],
+                      np.array(h5f["terminal"])[copy_indices])
+            np.copyto(self.goal[:copy_size],
+                      np.array(h5f["goal"])[copy_indices])
+            np.copyto(self.achieved_goal[:copy_size],
+                      np.array(h5f["achieved_goal"])[copy_indices])
 
             # set index and size accordingly
             self._e_idx = copy_size % self._max_episodes

@@ -19,16 +19,16 @@ import gym
 import click
 
 # ...
-import torchrl.cli.util
-import torchrl.agents.her_td3
-import torchrl.util.logging
-import torchrl.trainer
+import pyrl.cli.util
+import pyrl.agents.her_td3
+import pyrl.util.logging
+import pyrl.trainer
 
 ###############################################################################
 
 click.disable_unicode_literals_warning = True
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -82,10 +82,10 @@ def cli_her_td3_train(environment,
                       render,
                       save, seed):
     """Trains a HER + TD3 agent on an OpenAI's gym environment."""
-    torchrl.cli.util.initialize_seed(seed)
+    pyrl.cli.util.initialize_seed(seed)
 
-    trainer = torchrl.trainer.HerAgentTrainer(
-            agent_cls=torchrl.agents.her_td3.HerTD3, env_name=environment,
+    trainer = pyrl.trainer.HerAgentTrainer(
+            agent_cls=pyrl.agents.her_td3.HerTD3, env_name=environment,
             seed=seed, num_envs=num_envs, num_cpus=num_cpus,
             root_log_dir=os.path.join(save, "log"))
 
@@ -228,7 +228,7 @@ def cli_her_td3_optimize(environment, agent_path,
     env = gym.make(environment).unwrapped
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = torchrl.agents.her_td3.HerTD3.load(
+    agent = pyrl.agents.her_td3.HerTD3.load(
         agent_path, env, replay_buffer=True,
         log_dir=os.path.join(save, "log"))
     agent.set_train_mode()
@@ -269,11 +269,11 @@ def cli_her_td3_test(environment, agent_path, num_episodes, pause, seed):
     """Runs a previosly trained HER+TD3 agent on a gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = gym.make(environment)
-    torchrl.cli.util.initialize_seed(seed)
+    pyrl.cli.util.initialize_seed(seed)
     env.seed(seed)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = torchrl.agents.her_td3.HerTD3.load(agent_path, env,
+    agent = pyrl.agents.her_td3.HerTD3.load(agent_path, env,
                                                replay_buffer=False)
     agent.set_eval_mode()
 
@@ -310,7 +310,7 @@ def _evaluate(agent, num_evals, render):
     all_success = []
 
     for _ in range(num_evals):
-        rewards, infos, done = torchrl.cli.util.evaluate(
+        rewards, infos, done = pyrl.cli.util.evaluate(
             agent, agent.env, agent.max_episode_steps, render)
 
         success = any(x["is_success"] for x in infos)

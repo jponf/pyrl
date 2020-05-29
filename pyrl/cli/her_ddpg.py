@@ -18,16 +18,16 @@ import gym
 import click
 
 # ...
-import torchrl.cli.util
-import torchrl.agents.her_ddpg
-import torchrl.util.logging
+import pyrl.cli.util
+import pyrl.agents.her_ddpg
+import pyrl.util.logging
 
 
 ###############################################################################
 
 click.disable_unicode_literals_warning = True
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -79,18 +79,18 @@ def cli_her_ddpg_train(environment,
     _LOG.info("Loading '%s'", environment)
     sys.stdout.flush()
     env = gym.make(environment).unwrapped
-    torchrl.cli.util.initialize_seed(seed, env)
+    pyrl.cli.util.initialize_seed(seed, env)
 
     _LOG.info("Action space: %s", str(env.action_space))
     _LOG.info("Observation space: %s", str(env.observation_space))
 
     if load:
         _LOG.info("Loading agent")
-        agent = torchrl.agents.her_ddpg.HERDDPG.load(
+        agent = pyrl.agents.her_ddpg.HERDDPG.load(
             path=load, env=env, replay_buffer=True)
     else:
         _LOG.info("Initializing new agent")
-        agent = torchrl.agents.her_ddpg.HERDDPG(
+        agent = pyrl.agents.her_ddpg.HERDDPG(
             env=env,
             eps_greedy=0.2,
             gamma=1.0 - 1.0 / num_steps,
@@ -228,10 +228,10 @@ def cli_her_ddpg_test(environment, agent_path, num_episodes, num_steps,
                       pause, seed):
     _LOG.info("Loading %s", environment)
     env = gym.make(environment).unwrapped
-    torchrl.cli.util.initialize_seed(seed, env)
+    pyrl.cli.util.initialize_seed(seed, env)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = torchrl.agents.her_ddpg.HERDDPG.load(
+    agent = pyrl.agents.her_ddpg.HERDDPG.load(
         agent_path, env=env, replay_buffer=False)
     agent.set_eval_mode()
 
@@ -260,7 +260,7 @@ def _evaluate(agent, env, num_evals, num_steps, render):
     all_rewards = []
     all_success = []
     for _ in range(num_evals):
-        rewards, infos, done = torchrl.cli.util.evaluate(agent, env, num_steps,
+        rewards, infos, done = pyrl.cli.util.evaluate(agent, env, num_steps,
                                                          render)
         all_rewards.append(rewards)
         all_success.append(any(x.get("is_success", False) for x in infos))

@@ -15,16 +15,16 @@ import numpy as np
 import click
 
 # ...
-import torchrl.agents.td3
-import torchrl.cli.util
-import torchrl.util.logging
-import torchrl.util.ugym
+import pyrl.agents.td3
+import pyrl.cli.util
+import pyrl.util.logging
+import pyrl.util.ugym
 
 ###############################################################################
 
 click.disable_unicode_literals_warning = True
 
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 _EPISODE_SUMMARY_MSG = ("Last reward: {:.5f}, Sum reward: {:.5f},"
                         " Avg. reward: {:.5f}, Std. reward: {:.5f}")
@@ -74,20 +74,20 @@ def cli_td3_train(environment,
     """Trains a TD3 agent on an OpenAI's gym environment."""
     # Initialize environment
     _LOG.info("Loading '%s'", environment)
-    env = torchrl.util.ugym.make_flat(environment, unwrap=True)
-    torchrl.cli.util.initialize_seed(seed, env)
+    env = pyrl.util.ugym.make_flat(environment, unwrap=True)
+    pyrl.cli.util.initialize_seed(seed, env)
 
     _LOG.info("Action space: %s", str(env.action_space))
     _LOG.info("Observation space: %s", str(env.observation_space))
 
     if load:
         print("Loading agent")
-        agent = torchrl.agents.td3.TD3.load(load,
-                                            replay_buffer=True,
-                                            log_dir=os.path.join(save, "log"))
+        agent = pyrl.agents.td3.TD3.load(load,
+                                         replay_buffer=True,
+                                         log_dir=os.path.join(save, "log"))
     else:
         print("Initializing new agent")
-        agent = torchrl.agents.td3.TD3(
+        agent = pyrl.agents.td3.TD3(
             observation_space=env.observation_space,
             action_space=env.action_space,
             gamma=.99,
@@ -211,12 +211,12 @@ def cli_td3_test(environment, agent_path, num_episodes, num_steps,
     """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""
     print("Loading '{}'".format(environment), end=" ", file=sys.stdout)
     sys.stdout.flush()
-    env = torchrl.util.ugym.make_flat(environment, unwrap=True)
+    env = pyrl.util.ugym.make_flat(environment, unwrap=True)
     print("... environment loaded", file=sys.stdout)
-    torchrl.cli.util.initialize_seed(seed, env)
+    pyrl.cli.util.initialize_seed(seed, env)
 
     print("Loading agent from '{}'".format(agent_path))
-    agent = torchrl.agents.td3.TD3.load(agent_path, replay_buffer=False)
+    agent = pyrl.agents.td3.TD3.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
     print("Agent trained for", agent.num_episodes, "episodes")
@@ -245,7 +245,7 @@ def cli_td3_test(environment, agent_path, num_episodes, num_steps,
 def _evaluate(agent, env, num_evals, num_steps, render):
     all_rewards = []
     for _ in range(num_evals):
-        rewards, done = torchrl.cli.util.evaluate(agent, env, num_steps,
+        rewards, done = pyrl.cli.util.evaluate(agent, env, num_steps,
                                                   render)
         all_rewards.append(rewards)
 

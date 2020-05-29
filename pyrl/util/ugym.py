@@ -23,14 +23,19 @@ def make_flat(env_name, unwrap=False, **kwargs):
     return env
 
 
+def is_her_space(space):
+    """Tests if the given space is Hindsight Experience Replay compatible."""
+    return (isinstance(space, gym.spaces.Dict) and
+            "observation" in space.spaces and
+            "desired_goal" in space.spaces and
+            "achieved_goal" in space.spaces)
+
+
 def is_her_env(env):
     """Tests if the given environment is Hindsight Experience Replay
     compatible.
     """
-    return (isinstance(env.observation_space, gym.spaces.Dict) and
-            "observation" in env.observation_space.spaces and
-            "desired_goal" in env.observation_space.spaces and
-            "achieved_goal" in env.observation_space.spaces)
+    return is_her_space(env.observation_space)
 
 
 def flatten_her_env(env):

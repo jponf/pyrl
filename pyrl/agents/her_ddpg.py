@@ -20,19 +20,19 @@ import torch.nn.functional as F
 import torch.utils.tensorboard as tensorboard
 
 # ...
-import torchrl.util.logging
-import torchrl.util.math as umath
+import pyrl.util.logging
+import pyrl.util.umath as umath
 
-from .models import HerActor, HerCritic
+from .models import HerActorMLP, HerCriticMLP
 from .noise import NormalActionNoise
-from .preprocessing import StandardScaler
-from .utils import HerReplayBuffer
+from .preprocessing import StandardNormalizer
+from .replay_buffer import HerReplayBuffer
 
 
 ###############################################################################
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-_LOG = torchrl.util.logging.get_logger()
+_LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
@@ -127,12 +127,12 @@ class HERDDPG(object):
 
         # Build model
         # DDPG uses a simple actor critic (A2C) architecture
-        self.actor = HerActor(
+        self.actor = HerActorMLP(
             state_dim, action_dim,
             hidden_layers=actor_hidden_layers,
             hidden_size=actor_hidden_size,
             activation=actor_activation).to(_DEVICE)
-        self.target_actor = HerActor(
+        self.target_actor = HerActorMLP(
             state_dim, action_dim,
             hidden_layers=actor_hidden_layers,
             hidden_size=actor_hidden_size,
@@ -140,12 +140,12 @@ class HERDDPG(object):
         self.target_actor.load_state_dict(self.actor.state_dict())
         self.target_actor.eval()
 
-        self.critic = HerCritic(
+        self.critic = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
             activation=critic_activation).to(_DEVICE)
-        self.target_critic = HerCritic(
+        self.target_critic = HerCriticMLP(
             state_dim, action_dim, 1,
             hidden_layers=critic_hidden_layers,
             hidden_size=critic_hidden_size,
@@ -176,10 +176,10 @@ class HERDDPG(object):
         # Normalizer
         self._normalize_observations_clip = normalize_observations_clip
         if normalize_observations:
-            self.obs_normalizer = StandardScaler(
+            self.obs_normalizer = StandardNormalizer(
                 n_features=obs_dim,
                 clip_range=normalize_observations_clip)
-            self.goal_normalizer = StandardScaler(
+            self.goal_normalizer = StandardNormalizer(
                 n_features=goal_dim,
                 clip_range=normalize_observations_clip)
         else:
@@ -567,10 +567,10 @@ class HERDDPG(object):
 
         if instance.obs_normalizer is not None:
             _LOG.debug("(HER-DDPG) Loading observation normalizer")
-            instance.obs_normalizer = StandardScaler.load(
+            instance.obs_normalizer = StandardNormalizer.load(
                 os.path.join(path, 'obs_normalizer'))
             _LOG.debug("(HER-DDPG) Loading goal normalizer")
-            instance.goal_normalizer = StandardScaler.load(
+            instance.goal_normalizer = StandardNormalizer.load(
                 os.path.join(path, 'goal_normalizer'))
 
         return instance
