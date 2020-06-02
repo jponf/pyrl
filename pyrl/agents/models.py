@@ -127,8 +127,8 @@ class HerCriticMLP(CriticMLP):
         obs_space = observation_space['observation']
         goal_space = observation_space['desired_goal']
         flat_obs_space = gym.spaces.Box(
-            low=np.concatenate(obs_space.low, goal_space.low),
-            hig=np.concatenate(obs_space.high, goal_space.high),
+            low=np.concatenate((obs_space.low, goal_space.low)),
+            high=np.concatenate((obs_space.high, goal_space.high)),
             dtype=obs_space.dtype)
 
         super(HerCriticMLP, self).__init__(flat_obs_space, action_space,
@@ -155,7 +155,6 @@ class HerActorMLP(ActorMLP):
                  activation="relu",
                  layer_norm=False,
                  *args, **kwargs):
-
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay actor expects a"
                             " gym.spaces.Dict observation space")
@@ -163,8 +162,8 @@ class HerActorMLP(ActorMLP):
         obs_space = observation_space['observation']
         goal_space = observation_space['desired_goal']
         flat_obs_space = gym.spaces.Box(
-            low=np.concatenate(obs_space.low, goal_space.low),
-            hig=np.concatenate(obs_space.high, goal_space.high),
+            low=np.concatenate((obs_space.low, goal_space.low)),
+            high=np.concatenate((obs_space.high, goal_space.high)),
             dtype=obs_space.dtype)
 
         super(HerActorMLP, self).__init__(flat_obs_space, action_space,

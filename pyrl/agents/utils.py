@@ -3,7 +3,6 @@
 from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
-
 # SciPy
 import numpy as np
 
@@ -12,6 +11,7 @@ import pyrl.util.ugym
 from .models import ActorMLP, CriticMLP, HerActorMLP, HerCriticMLP
 from .noise import NullActionNoise, NormalActionNoise, OUActionNoise
 from .preprocessing import IdentityNormalizer, StandardNormalizer
+
 
 ###############################################################################
 
@@ -92,21 +92,25 @@ def create_actor(observation_space, action_space,
     actor_kwargs["observation_space"] = observation_space
     actor_kwargs["action_space"] = action_space
 
+    actor = None
     if actor_cls is not None:
         actor = actor_cls(**actor_kwargs)
+    elif is_her:
+        obs_dim = len(observation_space["observation"].shape)
+        goal_dim = len(observation_space["desired_goal"].shape)
+        action_dim = len(action_space.shape)
+        if obs_dim == 1 and goal_dim == 1 and action_dim == 1:
+            actor = HerActorMLP(**actor_kwargs)
     else:
         obs_dim = len(observation_space.shape)
-        act_dim = len(action_space.shape)
+        action_dim = len(action_space.shape)
+        if obs_dim == 1 and action_dim == 1:
+            actor = ActorMLP(**actor_kwargs)
 
-        if obs_dim == 1 and act_dim == 1:
-            actor = (HerActorMLP(**actor_kwargs) if is_her
-                     else ActorMLP(**actor_kwargs))
-        else:
-            # TODO: ActorConv
-            raise ValueError("Unknown actor type for observation space with"
-                             " shape {} and action space with shape {}"
-                             .format(observation_space.shape,
-                                     action_space.shape))
+    if actor is None:  # TODO: CriticConv
+        raise ValueError("Unknown actor type for observation space"
+                         " {} and action space {}".format(observation_space,
+                                                          action_space))
 
     return actor
 
@@ -120,19 +124,24 @@ def create_critic(observation_space, action_space,
     critic_kwargs["observation_space"] = observation_space
     critic_kwargs["action_space"] = action_space
 
+    critic = None
     if critic_cls is not None:
         critic = critic_cls(**critic_kwargs)
+    elif is_her:
+        obs_dim = len(observation_space["observation"].shape)
+        goal_dim = len(observation_space["desired_goal"].shape)
+        action_dim = len(action_space.shape)
+        if obs_dim == 1 and goal_dim == 1 and action_dim == 1:
+            critic = HerCriticMLP(**critic_kwargs)
     else:
         obs_dim = len(observation_space.shape)
-        act_dim = len(action_space.shape)
-        if obs_dim == 1 and act_dim == 1:
-            critic = (HerCriticMLP(**critic_kwargs) if is_her else
-                      CriticMLP(**critic_kwargs))
-        else:
-            # TODO: CriticConv
-            raise ValueError("Unknown critic type for observation space with"
-                             " shape {} and action space with shape {}"
-                             .format(observation_space.shape,
-                                     action_space.shape))
+        action_dim = len(action_space.shape)
+        if obs_dim == 1 and action_dim == 1:
+            critic = CriticMLP(**critic_kwargs)
+
+    if critic is None:  # TODO: CriticConv
+        raise ValueError("Unknown critic type for observation space"
+                         " {} and action space {}".format(observation_space,
+                                                          action_space))
 
     return critic

@@ -45,7 +45,7 @@ class TD3(Agent):
     def __init__(self,
                  observation_space,
                  action_space,
-                 gamma=.9,
+                 gamma=.95,
                  tau=0.005,
                  batch_size=128,
                  reward_scale=1.0,
@@ -60,7 +60,7 @@ class TD3(Agent):
                  critic_lr=0.001,
                  observation_normalizer="none",
                  observation_clip=float('inf'),
-                 action_noise="ou_0.2"):
+                 action_noise="normal_0.2"):
         """
         :param observation_space: Structure of the observations returned by
             the enviornment.
@@ -129,7 +129,6 @@ class TD3(Agent):
                                                  self.action_space,
                                                  actor_cls, actor_kwargs,
                                                  critic_cls, critic_kwargs)
-
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
         self.critic_2, self.target_critic_2 = critics_2
@@ -138,6 +137,7 @@ class TD3(Agent):
         self._actor_lr = actor_lr
         self._critic_kwargs = critic_kwargs
         self._critic_lr = critic_lr
+
         self.actor_optimizer = optim.Adam(self.actor.parameters(),
                                           lr=actor_lr)
         self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(),
@@ -199,10 +199,9 @@ class TD3(Agent):
         state = self.obs_normalizer.transform(state).unsqueeze_(0).to(_DEVICE)
 
         # Compute action
-        action = self.actor(state)
+        action = self.actor(state).squeeze_(0).cpu().numpy()
 
         # Post-process
-        action = action.squeeze_(0).cpu().numpy()
         if self._train_mode:
             action = np.clip(action + self.action_noise(),
                              self.actor.action_space.low,
@@ -237,7 +236,7 @@ class TD3(Agent):
             target_q = (1 - terminal.int()) * self.gamma * min_target_q
             target_q += self.reward_scale * reward
 
-        # Optimize critic
+        # Optimize critics
         current_q1 = self.critic_1(state, action)
         loss_q1 = F.smooth_l1_loss(current_q1, target_q)
         self.critic_1_optimizer.zero_grad()
@@ -282,7 +281,7 @@ class TD3(Agent):
                                        self.critic_2.parameters()):
             target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
 
-# Agent State
+    # Agent State
     ########################
 
     def state_dict(self):

@@ -71,7 +71,6 @@ if __name__ == "__main__":
     main.add_command(pyrl.cli.td3.cli_td3_test)
 
     main.add_command(pyrl.cli.her_td3.cli_her_td3_train)
-    main.add_command(pyrl.cli.her_td3.cli_her_td3_optimize)
     main.add_command(pyrl.cli.her_td3.cli_her_td3_test)
 
     main(prog_name="torchrl")

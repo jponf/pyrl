@@ -174,7 +174,7 @@ class Agent(BaseAgent):
         self.action_space = action_space
 
     @classmethod
-    def load(cls, path, *args, **kwargs):
+    def load(cls, path, replay_buffer=True, *args, **kwargs):
         raise NotImplementedError
 
 
@@ -193,6 +193,20 @@ class HerAgent(BaseAgent):
         """The `max_episode_steps` attribute from the environment's spec."""
         return self.env.spec.max_episode_steps
 
+    @abc.abstractmethod
+    def load_demonstrations(self, demo_path):
+        """Loads a .npz file with 3 components 'acs', 'obs' and 'info'.
+
+        - acs: are the actions taken by the agent as given to step(...).
+        - obs: are the states returned by reset() and step(...).
+        - info: are the info objects returne by step(...).
+
+        Note: There should always be one more 'obs' than 'acs' and 'info'.
+
+        :param demo_path: Path to the .npz file with the data to build the
+            demonstration replay buffer.
+        """
+
     @classmethod
-    def load(cls, path, env, *args, **kwargs):
+    def load(cls, path, env, replay_buffer=True, *args, **kwargs):
         raise NotImplementedError
