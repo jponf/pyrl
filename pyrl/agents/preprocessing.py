@@ -15,6 +15,22 @@ import h5py
 @six.add_metaclass(abc.ABCMeta)
 class Normalizer(object):
 
+    def __init__(self, shape,
+                 epsilon=1e-4,
+                 clip_range=float('inf')):
+        """
+        :param shape: Number of features in an individual sample.
+        :type shape: Tuple[int]
+        :param epsilon: minimum std value.
+        :type epsilon: float
+        :param clip_range: clip standardized values to be in range
+            [-clip_range, clip_range] (default: inf tensor).
+        :type clip_range: float
+        """
+        self.shape = shape
+        self.epsilon = epsilon
+        self.clip_range = torch.as_tensor(clip_range).float()
+
     @abc.abstractmethod
     def transform(self, x):
         raise NotImplementedError()
@@ -59,6 +75,12 @@ class Normalizer(object):
 
 class IdentityNormalizer(Normalizer):
 
+    def __init__(self,
+                 shape,
+                 epsilon=1e-4,
+                 clip_range=float('inf')):
+        super(IdentityNormalizer, self).__init__(shape, epsilon, clip_range)
+
     def transform(self, x):
         return x
 
@@ -98,15 +120,7 @@ class StandardNormalizer(Normalizer):
                  shape,
                  epsilon=1e-4,
                  clip_range=float('inf')):
-        """
-        :param int n_features: Number of features in an individual sample.
-        :param float epsilon: minimum std value.
-        :param float clip_range: clip standardized values to be in
-            range [-clip_range, clip_range] (default: inf tensor).
-        """
-        self.shape = shape
-        self.epsilon = epsilon
-        self.clip_range = torch.as_tensor(clip_range).float()
+        super(StandardNormalizer, self).__init__(shape, epsilon, clip_range)
 
         self.sum = torch.zeros(shape)
         self.sum_sq = torch.zeros(shape)
@@ -156,8 +170,8 @@ class StandardNormalizer(Normalizer):
             self.mean = self.sum / self.count
             self.std = ((self.sum_sq / self.count) - self.mean.pow(2)).sqrt()
         else:
-            self.mean = torch.zeros(self.n_features)
-            self.std = torch.ones(self.n_features)
+            self.mean = torch.zeros(self.shape)
+            self.std = torch.ones(self.shape)
 
         # Avoid nan and zeros
         self.std[torch.isnan(self.std)] = self.epsilon

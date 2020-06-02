@@ -2,6 +2,7 @@
 
 import abc
 import six
+import tqdm.auto as tqdm
 
 # ...
 import pyrl.util.ugym
@@ -11,17 +12,25 @@ import pyrl.util.summary
 ###############################################################################
 
 @six.add_metaclass(abc.ABCMeta)
-class Agent(object):
-    """Generic Agent interface."""
+class BaseAgent(object):
+    """Base Agent interface."""
 
     def __init__(self, *args, **kwargs):
-        super(Agent, self).__init__(*args, **kwargs)
+        super(BaseAgent, self).__init__(*args, **kwargs)
         self._summary = pyrl.util.summary.DummySummary()
+
+        self._train_steps = 0
+        self._train_mode = True
+
+    @property
+    def num_train_steps(self):
+        """Number of times the agent has been trained."""
+        return self._train_steps
 
     def init_summary_writter(self, log_path):
         """Initializes a tensorboard summary writter to track the agent
         evolution while trainig."""
-        if self._summary is not None:
+        if not isinstance(self._summary, pyrl.util.summary.DummySummary):
             raise ValueError("summary writter can only be initialized once")
         self._summary = pyrl.util.summary.Summary(log_dir=log_path)
 
@@ -32,7 +41,7 @@ class Agent(object):
     @abc.abstractmethod
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
-        raise NotImplementedError
+        self._train_mode = mode
 
     @abc.abstractmethod
     def begin_episode(self):
@@ -51,6 +60,7 @@ class Agent(object):
         gathered on calls to `update` to compute metrics and move data
         from temporary to persisten buffers.
         """
+        self._num_episodes += 1
 
     @abc.abstractmethod
     def update(self, state, action, reward, next_state, terminal):
@@ -82,8 +92,32 @@ class Agent(object):
         :param progress: If set the training progress is printed on the
             standard output stream (using tqdm).
         """
-        raise NotImplementedError
+        if not self._train_mode:
+            raise ValueError("agent must be in train mode")
+        if steps <= 0:
+            raise ValueError("steps must be > 0")
 
+        if progress:
+            t_steps = tqdm.trange(steps, desc="Train step",
+                                  dynamic_ncols=True)
+        else:
+            t_steps = range(steps)
+
+        for _ in t_steps:
+            self._train()
+            self._train_steps += 1
+
+    @abc.abstractmethod
+    def _train(self):
+        """Train the agent one step.
+
+        This method is called internally by `train()`.
+        """
+
+    # Agent State
+    ########################
+
+    @abc.abstractmethod
     def state_dict(self):
         """Returns a dictionary containing the whole state of the agent.
 
@@ -93,8 +127,8 @@ class Agent(object):
         :return: A dictionary containing the whole state of the agent.
         :rtype: dict
         """
-        raise NotImplementedError
 
+    @abc.abstractmethod
     def load_state_dict(self, state):
         """Copies the state into this agent. Any additional key in the
         dictionary is ignored.
@@ -106,8 +140,17 @@ class Agent(object):
 
         :raise KeyError: If a required key is not in the dictionary.
         """
-        raise NotImplementedError
 
+    @abc.abstractmethod
+    def aggregate_state_dicts(self, states):
+        """Aggregates the content of multiple states into this agent.
+
+        This method is mainly intended for distributed training.
+
+        :param states: A list of states (dictionaries) valid for this agent.
+        """
+
+    @abc.abstractmethod
     def save(self, path, replay_buffer=True):
         """Saves the agent in the given `path`.
 
@@ -120,12 +163,22 @@ class Agent(object):
         """
         raise NotImplementedError
 
+
+class Agent(BaseAgent):
+    """Generic Base Agent Interface."""
+
+    def __init__(self, observation_space, action_space, *args, **kwargs):
+        super(Agent, self).__init__(*args, **kwargs)
+
+        self.observation_space = observation_space
+        self.action_space = action_space
+
     @classmethod
     def load(cls, path, *args, **kwargs):
         raise NotImplementedError
 
 
-class HerAgent(Agent):
+class HerAgent(BaseAgent):
     """Generic Hindsight Experience Replay Agent interface."""
 
     def __init__(self, env, *args, **kwargs):
@@ -141,5 +194,5 @@ class HerAgent(Agent):
         return self.env.spec.max_episode_steps
 
     @classmethod
-    def load(cls, env, path, *args, **kwargs):
+    def load(cls, path, env, *args, **kwargs):
         raise NotImplementedError

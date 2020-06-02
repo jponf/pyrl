@@ -31,45 +31,13 @@ from .replay_buffer import HerReplayBuffer
 
 ###############################################################################
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+_DEVICE = "cpu"
 _LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
 
-class ReplayBuffer(object):
-
-    def __init__(self, maxlen):
-        self.maxlen = maxlen
-        self.buffer = []
-        self._num_transitions = 0
-        self._num_episodes = 0
-
-    def __getitem__(self, index):
-        return self.buffer[index]
-
-    def __len__(self):
-        return self._num_episodes
-
-    @property
-    def num_transitions(self):
-        return self._num_transitions
-
-    def store_episode(self, transitions):
-        # drop oldest
-        while self.num_transitions + len(transitions) > self.maxlen:
-            self._num_transitions -= len(self.buffer[0])
-            self._num_episodes -= 1
-            del self.buffer[0]
-
-        self.buffer.append(transitions)
-        self._num_transitions += len(transitions)
-        self._num_episodes += 1
-
-
-###############################################################################
-
-class HERDDPG(object):
+class HerDDPG(object):
     """Hindsight Experience Replay Agent that uses DDPG as the
     off-policy RL algorithm.
 

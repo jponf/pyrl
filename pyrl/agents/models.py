@@ -20,7 +20,7 @@ import torch.nn as nn
 
 class CriticMLP(nn.Module):
     def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=512,
+                 hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False):
         assert hidden_layers > 0
         assert hidden_size > 0
@@ -57,7 +57,7 @@ class CriticMLP(nn.Module):
 class ActorMLP(nn.Module):
 
     def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=512,
+                 hidden_layers=3, hidden_size=256,
                  activation="relu",
                  layer_norm=False):
         assert hidden_layers >= 0

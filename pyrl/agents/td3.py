@@ -6,10 +6,7 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 
 # Scipy
 import numpy as np
@@ -18,27 +15,27 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-import torch.utils.tensorboard as tensorboard
 
-# robotrl
+# ...
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
-from .models import ActorMLP, CriticMLP
+from .core import Agent
 from .noise import NormalActionNoise
-from .preprocessing import StandardNormalizer
 from .replay_buffer import FlatReplayBuffer
+from .utils import (create_action_noise, create_normalizer,
+                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
 
-_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+_DEVICE = "cpu"
 _LOG = pyrl.util.logging.get_logger()
 
 
 ###############################################################################
 
-class TD3(object):
+class TD3(Agent):
     """Twin Delayed Deep Deterministic Policy Gradient Algorithm.
 
     Introduced in the paper: Addressing Function Approximation Error in
@@ -51,98 +48,96 @@ class TD3(object):
                  gamma=.9,
                  tau=0.005,
                  batch_size=128,
-                 policy_delay=2,
                  reward_scale=1.0,
-                 replay_buffer_size=500000,
-                 actor_hidden_layers=3,
-                 actor_hidden_size=256,
-                 actor_activation="relu",
-                 actor_lr=3e-4,
-                 critic_hidden_layers=3,
-                 critic_hidden_size=256,
-                 critic_activation="relu",
-                 critic_lr=3e-4,
-                 normalize_observations=True,
-                 action_noise=0.2,
+                 replay_buffer_size=1000000,
+                 policy_delay=2,
                  random_steps=1000,
-                 log_dir="td3_log"):
+                 actor_cls=None,
+                 actor_kwargs=None,
+                 actor_lr=0.001,
+                 critic_cls=None,
+                 critic_kwargs=None,
+                 critic_lr=0.001,
+                 observation_normalizer="none",
+                 observation_clip=float('inf'),
+                 action_noise="ou_0.2"):
         """
         :param observation_space: Structure of the observations returned by
             the enviornment.
+        :type observation_space: gym.Box
         :param action_space: Structure of the actions that can be taken in
             the environment.
-        :param float gamma: Bellman's discount rate.
-        :param float tau: Used to perform "soft" updates of the weights from
-            the actor/critic to their "target" counterparts.
-        :param int batch_size: Size of the sample used to train the actor and
+        :type action_space: gym.Box
+        :param gamma: Bellman's discount rate.
+        :type gamma: float
+        :param tau: Used to perform "soft" updates (polyak averaging) of the
+            weights from the actor/critic to their "target" counterparts.
+        :type tau: float
+        :param batch_size: Size of the sample used to train the actor and
             critic at each timestep.
-        :param int replay_buffer_size: Size of the replay buffer.
-        :param str actor_activation: Activation function used in the actor.
-        :param float actor_lr: Learning rate for the actor network.
-        :param str critic_activation: Activation function used in the critic.
-        :param float critic_lr: Learning rate for the critic network.
-        :param float action_noise: Standard deviation expressed as a fraction
-            of the actions' range of values, a value in the range [0.0, 1.0].
-            A value of 0 disables the use of action noise during training.
-            tanh saturation and vanishing gradients (0 disables the penalty).
-        :param bool normalize_observations: Whether or not observations should
-            be normalized using the running mean and standard deviation before
-            feeding them to the network.
-        :param int random_steps: Initial number  of steps that will use a
-            purely exploration policy (random). Afterwards, an off-policy
-            exploration strategy with Gaussian noise will be used.
-        :param str log_dir: Directory to output tensorboard logs.
+        :type batch_size: int
+        :param replay_buffer_size: Number of transitions to store in the replay
+            buffer.
+        :type replay_buffer_size: int
+        :param policy_delay: Number of times the critic networks are trained
+            before training the policy network.
+        :type policy_delay: int
+        :param random_steps: Number of steps taken completely at random while
+            training before using the actor action + noise.
+        :type random_steps: int
+        :param actor_cls: Actor network class.
+        :type actor_cls: type
+        :param actor_kwargs: Arguments to initialize the actor network.
+        :type actor_kwargs: dict
+        :param actor_lr: Learning rate for the actor network.
+        :type actor_lr: float
+        :param critic_cls: Critic network class.
+        :type critic_cls: type
+        :param actor_kwargs: Arguments to initialize the critic network.
+        :type actor_kwargs: dict
+        :param critic_lr: Learning rate for the critic network.
+        :type critic_lr: float
+        :param observation_normalizer: Normalize the environment observations
+            according to a normalizer. observation_normalizer can either be
+            "none" or "standard".
+        :type observation_normalizer: str
+        :param observation_clip: Range of the observations after being
+            normalized. This parameter will only take effect when normalizer
+            is not set to "none".
+        :type observation_clip: float
+        :param action_noise: Name and standard deviaton of the action noise
+            expressed as name_std, i.e., ou_0.2 or normal_0.1. Use "none" to
+            disable the use of action noise.
+        :type action_noise: str
         """
-        self.observation_space = observation_space
-        self.action_space = action_space
-
-        state_dim = self.observation_space.shape[0]
-        action_dim = self.action_space.shape[0]
-
+        super(TD3, self).__init__(observation_space, action_space)
         self.gamma = gamma
         self.tau = tau
 
         self.batch_size = batch_size
-        self.policy_delay = policy_delay
         self.reward_scale = reward_scale
-        self.replay_buffer = FlatReplayBuffer(state_dim=state_dim,
-                                              action_dim=action_dim,
-                                              max_size=replay_buffer_size)
+        self.replay_buffer = FlatReplayBuffer(
+            state_shape=self.observation_space.shape,
+            action_shape=self.action_space.shape,
+            max_size=replay_buffer_size)
 
-        # Build model (A2C architecture)
-        self.actor = Actor(state_dim, action_dim,
-                           hidden_layers=actor_hidden_layers,
-                           hidden_size=actor_hidden_size,
-                           activation=actor_activation).to(_DEVICE)
-        self.target_actor = Actor(state_dim, action_dim,
-                                  hidden_layers=actor_hidden_layers,
-                                  hidden_size=actor_hidden_size,
-                                  activation=actor_activation).to(_DEVICE)
-        self.target_actor.load_state_dict(self.actor.state_dict())
-        self.target_actor.eval()
+        self.policy_delay = policy_delay
+        self.random_steps = random_steps
 
-        self.critic_1 = Critic(state_dim, action_dim, 1,
-                               hidden_layers=critic_hidden_layers,
-                               hidden_size=critic_hidden_size,
-                               activation=critic_activation).to(_DEVICE)
-        self.target_critic_1 = Critic(state_dim, action_dim, 1,
-                                      hidden_layers=critic_hidden_layers,
-                                      hidden_size=critic_hidden_size,
-                                      activation=critic_activation).to(_DEVICE)
-        self.target_critic_1.load_state_dict(self.critic_1.state_dict())
-        self.target_critic_1.eval()
+        # Build model (AC architecture)
+        actors, critics_1, critics_2 = _build_ac(self.observation_space,
+                                                 self.action_space,
+                                                 actor_cls, actor_kwargs,
+                                                 critic_cls, critic_kwargs)
 
-        self.critic_2 = Critic(state_dim, action_dim, 1,
-                               hidden_layers=critic_hidden_layers,
-                               hidden_size=critic_hidden_size,
-                               activation=critic_activation).to(_DEVICE)
-        self.target_critic_2 = Critic(state_dim, action_dim, 1,
-                                      hidden_layers=critic_hidden_layers,
-                                      hidden_size=critic_hidden_size,
-                                      activation=critic_activation).to(_DEVICE)
-        self.target_critic_2.load_state_dict(self.critic_2.state_dict())
-        self.target_critic_2.eval()
+        self.actor, self.target_actor = actors
+        self.critic_1, self.target_critic_1 = critics_1
+        self.critic_2, self.target_critic_2 = critics_2
 
+        self._actor_kwargs = actor_kwargs
+        self._actor_lr = actor_lr
+        self._critic_kwargs = critic_kwargs
+        self._critic_lr = critic_lr
         self.actor_optimizer = optim.Adam(self.actor.parameters(),
                                           lr=actor_lr)
         self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(),
@@ -150,113 +145,87 @@ class TD3(object):
         self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(),
                                              lr=critic_lr)
 
-        self._actor_hidden_layers = actor_hidden_layers
-        self._actor_hidden_size = actor_hidden_size
-        self._actor_activation = actor_activation
-        self._actor_lr = actor_lr
-        self._critic_hidden_layers = critic_hidden_layers
-        self._critic_hidden_size = critic_hidden_size
-        self._critic_activation = critic_activation
-        self._critic_lr = critic_lr
-
         # Normalizer
-        if normalize_observations:
-            self.obs_normalizer = StandardNormalizer(
-                n_features=state_dim,
-                clip_range=5.0)
-        else:
-            self.obs_normalizer = None
+        self._obs_normalizer_arg = observation_normalizer
+        self.obs_normalizer = create_normalizer(observation_normalizer,
+                                                self.observation_space.shape,
+                                                clip_range=observation_clip)
 
         # Noise
-        action_space_range = (self.actor.action_space.high -
-                              self.actor.action_space.low)
+        self._action_noise_arg = action_noise
+        self.action_noise = create_action_noise(action_noise, action_space)
 
-        self.action_noise_arg = action_noise
-        if action_noise > 0.0:
-            self.action_noise = NormalActionNoise(
-                mu=np.zeros(action_dim),
-                sigma=action_noise * action_space_range)
-        else:
-            self.action_noise = None
-
+        actor_space_range = (self.actor.action_space.high -
+                             self.actor.action_space.low)
         self.smoothing_noise = NormalActionNoise(
-            mu=np.zeros(action_dim),
-            sigma=0.1 * action_space_range,
-            clip_min=np.repeat(-0.2, action_dim),
-            clip_max=np.repeat(0.2, action_dim))
+            mu=np.zeros(actor_space_range.shape),
+            sigma=0.1 * actor_space_range,
+            clip_min=0.15 * actor_space_range,
+            clip_max=-0.15 * actor_space_range)
 
-        self.random_steps = random_steps
-
-        # Other training attributes
-        self.total_steps = 0
-        self.num_episodes = 0
-        self.episode_steps = 0
-        self.train_steps = 0
-        self._train_mode = True
-        self._summary_w = tensorboard.SummaryWriter(log_dir=log_dir)
-
-    def set_eval_mode(self):
-        """Sets the agent in evaluation mode."""
-        self.set_train_mode(mode=False)
+        # Other attributes
+        self._total_steps = 0
 
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
+        super(TD3, self).set_train_mode(mode)
         self.actor.train(mode=mode)
         self.critic_1.train(mode=mode)
         self.critic_2.train(mode=mode)
-        self._train_mode = mode
 
-    def reset(self):
-        self.num_episodes += 1
-        self.episode_steps = 0
-        if self.action_noise is not None:
-            self.action_noise.reset()
+    def begin_episode(self):
+        self.action_noise.reset()
 
-    def update(self, state, env_action, reward, next_state, done):
-        self.total_steps += 1
-        self.episode_steps += 1
+    def end_episode(self):
+        pass
 
-        # register observation into normalizer
-        if self.obs_normalizer:
-            self.obs_normalizer.update(state)
+    def update(self, state, action, reward, next_state, terminal):
+        self._total_steps += 1
+        action = self._to_actor_space(action)  # re-scale action
 
-        # re-scale action
-        action = umath.scale(env_action,
-                             self.action_space.low,
-                             self.action_space.high,
+        self.obs_normalizer.update(state)
+        self.replay_buffer.add(state=state, action=action,
+                               next_state=next_state,
+                               reward=reward, terminal=terminal)
+
+    @torch.no_grad()
+    def compute_action(self, state):
+        # Random exploration
+        if self._train_mode and self._total_steps < self.random_steps:
+            return self.action_space.sample()
+
+        # Pre-process
+        state = torch.from_numpy(state).float()
+        state = self.obs_normalizer.transform(state).unsqueeze_(0).to(_DEVICE)
+
+        # Compute action
+        action = self.actor(state)
+
+        # Post-process
+        action = action.squeeze_(0).cpu().numpy()
+        if self._train_mode:
+            action = np.clip(action + self.action_noise(),
                              self.actor.action_space.low,
                              self.actor.action_space.high)
 
-        self.replay_buffer.add(state=state, action=action,
-                               next_state=next_state,
-                               reward=reward, terminal=done)
+        return self._to_action_space(action)
 
-    def train(self, steps):
-        """Trains the agent using the transitions stored during exploration.
-
-        :param step: The number of training steps. It should be greater than
-            `policy_delay` otherwise the policy will not be trained.
-        """
-        assert self._train_mode
+    def train(self, steps, progress=False):
         if len(self.replay_buffer) >= self.batch_size:
-            for i in range(steps):
-                self._train((i % self.policy_delay) == 0)
-                self.train_steps += 1
+            super(TD3, self).train(steps, progress)
 
-    def _train(self, update_policy):
+    def _train(self):
         (state, action, next_state,
          reward, terminal) = self.replay_buffer.sample_batch_torch(
              self.batch_size, device=_DEVICE)
 
-        if self.obs_normalizer:
-            next_state = self.obs_normalizer.transform(next_state)
-            state = self.obs_normalizer.transform(state)
+        next_state = self.obs_normalizer.transform(next_state)
+        state = self.obs_normalizer.transform(state)
 
-        # Compute critic loss
+        # Compute critic loss (with smoothing noise)
         with torch.no_grad():
             next_action = self.target_actor(next_state).cpu().numpy()
-            next_action += self.smoothing_noise()
-            np.clip(next_action,
+            np.clip(next_action + self.smoothing_noise(),
                     self.actor.action_space.low,
                     self.actor.action_space.high,
                     out=next_action)
@@ -267,13 +236,6 @@ class TD3(object):
             min_target_q = torch.min(target_q1, target_q2)
             target_q = (1 - terminal.int()) * self.gamma * min_target_q
             target_q += self.reward_scale * reward
-            self._summary_w.add_scalars(
-                "TargetQ",
-                {"Q1": target_q1.mean(),
-                 "Q2": target_q2.mean(),
-                 "T": target_q.mean(),
-                 "Min": min_target_q.mean()},
-                self.train_steps)
 
         # Optimize critic
         current_q1 = self.critic_1(state, action)
@@ -288,15 +250,15 @@ class TD3(object):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self._summary_w.add_scalars("Q", {"Q1": current_q1.mean(),
-                                          "Q2": current_q2.mean(),
-                                          "Target": target_q.mean()},
-                                    self.train_steps)
-        self._summary_w.add_scalar("Loss/Critic1", loss_q1, self.train_steps)
-        self._summary_w.add_scalar("Loss/Critic2", loss_q2, self.train_steps)
+        self._summary.add_scalars("Q", {"Q1": current_q1.mean(),
+                                        "Q2": current_q2.mean(),
+                                        "Target": target_q.mean()},
+                                  self._train_steps)
+        self._summary.add_scalar("Loss/Critic1", loss_q1, self._train_steps)
+        self._summary.add_scalar("Loss/Critic2", loss_q2, self._train_steps)
 
         # Delayed policy updates
-        if update_policy:
+        if ((self._train_steps + 1) % self.policy_delay) == 0:
             actor_out = self.actor(state)
             loss_a = -self.critic_1(state, actor_out).mean()
 
@@ -304,8 +266,8 @@ class TD3(object):
             loss_a.backward()
             self.actor_optimizer.step()
 
+            self._summary.add_scalar("Loss/Actor", loss_a, self._train_steps)
             self._update_target_networks()
-            self._summary_w.add_scalar("Loss/Actor", loss_a, self.train_steps)
 
     def _update_target_networks(self):
         for target_param, param in zip(self.target_actor.parameters(),
@@ -320,41 +282,55 @@ class TD3(object):
                                        self.critic_2.parameters()):
             target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
 
-    @torch.no_grad()
-    def compute_action(self, state):
-        # Random exploration
-        if self._train_mode and self.total_steps < self.random_steps:
-            return self.action_space.sample()
+# Agent State
+    ########################
 
-        # Pre-process
-        state = torch.from_numpy(state).float()
-        if self.obs_normalizer:
-            state = self.obs_normalizer.transform(state)
-        state = state.unsqueeze_(0).to(_DEVICE)
+    def state_dict(self):
+        state = {"critic1": self.critic_1.state_dict(),
+                 "critic2": self.critic_2.state_dict(),
+                 "actor": self.actor.state_dict(),
+                 "obs_normalizer": self.obs_normalizer.state_dict(),
+                 "train_steps": self._train_steps,
+                 "total_steps": self._total_steps}
 
-        # Compute action
-        action = self.actor(state)
+        return state
 
-        # Post-process
-        action = action.squeeze_(0).cpu().numpy()
-        if self._train_mode and self.action_noise is not None:
-            noise = self.action_noise()
-            action = np.clip(action + noise,
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+    def load_state_dict(self, state):
+        self.critic_1.load_state_dict(state['critic1'])
+        self.target_critic_1.load_state_dict(state['critic1'])
+        self.critic_2.load_state_dict(state['critic2'])
+        self.target_critic_2.load_state_dict(state['critic2'])
+        self.actor.load_state_dict(state["actor"])
+        self.target_actor.load_state_dict(state["actor"])
 
-        env_action = umath.scale(action,
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high,
-                                 self.action_space.low,
-                                 self.action_space.high)
-        return env_action
+        self.obs_normalizer.load_state_dict(state["obs_normalizer"])
+
+        self._train_steps = state["train_steps"]
+        self._total_steps = state["total_steps"]
+
+    def aggregate_state_dicts(self, states):
+        critic_1_state = dicts_mean([x['critic1'] for x in states])
+        self.critic_1.load_state_dict(critic_1_state)
+        self.target_critic_1.load_state_dict(critic_1_state)
+
+        critic_2_state = dicts_mean([x['critic2'] for x in states])
+        self.critic_2.load_state_dict(critic_2_state)
+        self.target_critic_2.load_state_dict(critic_2_state)
+
+        actor_state = dicts_mean([x['actor'] for x in states])
+        self.actor.load_state_dict(actor_state)
+        self.target_actor.load_state_dict(actor_state)
+
+        self.obs_normalizer.load_state_dict([x['obs_normalizer']
+                                             for x in states])
+
+        self._train_steps = max(x["train_steps"] for x in states)
+        self._total_steps = max(x["total_steps"] for x in states)
+
+    # Save/Load Agent
+    ########################
 
     def save(self, path, replay_buffer=True):
-        """Saves the agent in the directory pointed by `path`.
-
-        If the directory does not exist a new one will be created.
-        """
         try:
             os.makedirs(path)
         except OSError as err:
@@ -367,44 +343,27 @@ class TD3(object):
             ('gamma', self.gamma),
             ('tau', self.tau),
             ('batch_size', self.batch_size),
-            ('policy_delay', self.policy_delay),
             ('reward_scale', self.reward_scale),
             ('replay_buffer_size', self.replay_buffer.max_size),
-            ('actor_hidden_layers', self._actor_hidden_layers),
-            ('actor_hidden_size', self._actor_hidden_size),
-            ('actor_activation', self._actor_activation),
-            ('actor_lr', self._actor_lr),
-            ('critic_hidden_layers', self._critic_hidden_layers),
-            ('critic_hidden_size', self._critic_hidden_size),
-            ('critic_activation', self._critic_activation),
-            ('critic_lr', self._critic_lr),
-            ('normalize_observations', self.obs_normalizer is not None),
-            ('action_noise', self.action_noise_arg),
+            ('policy_delay', self.policy_delay),
             ('random_steps', self.random_steps),
-            ('log_dir', self._summary_w.log_dir)
+            ('actor_cls', type(self.actor)),
+            ('actor_kwargs', self._actor_kwargs),
+            ('actor_lr', self._actor_lr),
+            ('critic_cls', type(self.critic_1)),
+            ('critic_kwargs', self._critic_kwargs),
+            ('critic_lr', self._critic_lr),
+            ('observation_normalizer', self._obs_normalizer_arg),
+            ('observation_clip', self.obs_normalizer.clip_range),
+            ('action_noise', self._action_noise_arg)
         ])
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
 
-        state = {
-            'total_steps': self.total_steps,
-            'num_episodes': self.num_episodes,
-            'train_steps': self.train_steps
-        }
-
-        pickle.dump(args, open(os.path.join(path, "args.pickle"), 'wb'))
-        pickle.dump(state, open(os.path.join(path, "state.pickle"), 'wb'))
-
-        torch.save(self.actor.state_dict(),
-                   os.path.join(path, 'actor.torch'))
-        torch.save(self.critic_1.state_dict(),
-                   os.path.join(path, 'critic_1.torch'))
-        torch.save(self.critic_2.state_dict(),
-                   os.path.join(path, 'critic_2.torch'))
+        state = self.state_dict()
+        pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
 
         if replay_buffer:
             self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
-
-        if self.obs_normalizer:
-            self.obs_normalizer.save(os.path.join(path, 'obs_normalizer'))
 
     @classmethod
     def load(cls, path, replay_buffer=True, **kwargs):
@@ -412,7 +371,7 @@ class TD3(object):
             raise ValueError("{} is not a directory".format(path))
 
         # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pickle"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as fh:
             _LOG.debug("(TD3) Loading agent arguments")
             args_values = pickle.load(fh)
             args_values.update(kwargs)
@@ -425,34 +384,63 @@ class TD3(object):
         # Create instance and load the rest of the data
         instance = cls(**args_values)
 
-        with open(os.path.join(path, "state.pickle"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as fh:
             _LOG.debug("(TD3) Loading agent state")
             state = pickle.load(fh)
-            instance.total_steps = state['total_steps']
-            instance.num_episodes = state['num_episodes']
-            instance.train_steps = state['train_steps']
-
-        _LOG.debug("(TD3) Loading actor")
-        actor_state = torch.load(os.path.join(path, "actor.torch"))
-        instance.actor.load_state_dict(actor_state)
-        instance.target_actor.load_state_dict(actor_state)
-        _LOG.debug("(TD3) Loading critic 1")
-        critic1_state = torch.load(os.path.join(path, "critic_1.torch"))
-        instance.critic_1.load_state_dict(critic1_state)
-        instance.target_critic_1.load_state_dict(critic1_state)
-        _LOG.debug("(TD3) Loading critic 2")
-        critic2_state = torch.load(os.path.join(path, "critic_2.torch"))
-        instance.critic_2.load_state_dict(critic2_state)
-        instance.target_critic_2.load_state_dict(critic2_state)
+            instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
         if replay_buffer and os.path.isfile(replay_buffer_path):
             _LOG.debug("(TD3) Loading replay buffer")
             instance.replay_buffer.load(replay_buffer_path)
 
-        if instance.obs_normalizer:
-            _LOG.debug("(TD3) Loading observations normalizer")
-            instance.obs_normalizer = StandardNormalizer.load(
-                os.path.join(path, 'obs_normalizer'))
-
         return instance
+
+    # Utilities
+    ########################
+
+    def _to_actor_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.action_space.low,
+                           max_x=self.action_space.high,
+                           min_out=self.actor.action_space.low,
+                           max_out=self.actor.action_space.high)
+
+    def _to_action_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.actor.action_space.low,
+                           max_x=self.actor.action_space.high,
+                           min_out=self.action_space.low,
+                           max_out=self.action_space.high)
+
+
+#
+###############################################################################
+
+def _build_ac(observation_space, action_space,
+              actor_cls, actor_kwargs,
+              critic_cls, critic_kwargs):
+    actor = create_actor(observation_space, action_space,
+                         actor_cls, actor_kwargs).to(_DEVICE)
+    target_actor = create_actor(observation_space, action_space,
+                                actor_cls, actor_kwargs).to(_DEVICE)
+    target_actor.load_state_dict(actor.state_dict())
+    target_actor.eval()
+
+    critic_1 = create_critic(observation_space, action_space,
+                             critic_cls, critic_kwargs).to(_DEVICE)
+    target_critic_1 = create_critic(observation_space, action_space,
+                                    critic_cls, critic_kwargs).to(_DEVICE)
+    target_critic_1.load_state_dict(critic_1.state_dict())
+    target_critic_1.eval()
+
+    critic_2 = create_critic(observation_space, action_space,
+                             critic_cls, critic_kwargs).to(_DEVICE)
+    target_critic_2 = create_critic(observation_space, action_space,
+                                    critic_cls, critic_kwargs).to(_DEVICE)
+    target_critic_2.load_state_dict(critic_2.state_dict())
+    target_critic_2.eval()
+
+    return ((actor, target_actor),
+            (critic_1, target_critic_1),
+            (critic_2, target_critic_2))

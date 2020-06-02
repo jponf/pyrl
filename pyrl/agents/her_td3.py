@@ -28,7 +28,8 @@ from .models import HerActorMLP, HerCriticMLP
 from .noise import NormalActionNoise
 from .preprocessing import StandardNormalizer
 from .replay_buffer import HerReplayBuffer
-
+from .utils import (create_action_noise, create_normalizer,
+                    create_actor, create_critic, dicts_mean)
 
 ###############################################################################
 
@@ -71,8 +72,8 @@ class HerTD3(core.HerAgent):
                  q_filter=False,
                  prm_loss_weight=0.001,
                  aux_loss_weight=None,
-                 normalize_observations=True,
-                 normalize_observations_clip=5.0,
+                 observation_normalizer="none",
+                 observation_clip=float('inf'),
                  action_noise=0.2,
                  smoothing_noise=True):
         """
@@ -130,12 +131,12 @@ class HerTD3(core.HerAgent):
             max_steps=replay_buffer_steps)
 
         # Build model (A2C architecture)
-        self.actor = HerActor(
+        self.actor = HerActorMLP(
             state_dim, action_dim,
             hidden_layers=actor_hidden_layers,
             hidden_size=actor_hidden_size,
             activation=actor_activation).to(_DEVICE)
-        self.target_actor = HerActor(
+        self.target_actor = HerActorMLP(
             state_dim, action_dim,
             hidden_layers=actor_hidden_layers,
             hidden_size=actor_hidden_size,
@@ -193,17 +194,15 @@ class HerTD3(core.HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Normalizer
-        self._normalize_observations_clip = normalize_observations_clip
-        if normalize_observations:
-            self.obs_normalizer = StandardNormalizer(
-                n_features=obs_dim,
-                clip_range=normalize_observations_clip)
-            self.goal_normalizer = StandardNormalizer(
-                n_features=goal_dim,
-                clip_range=normalize_observations_clip)
-        else:
-            self.obs_normalizer = None
-            self.goal_normalizer = None
+        self._obs_normalizer = observation_normalizer
+        self.obs_normalizer = create_normalizer(
+            observation_normalizer,
+            self.observation_space["observation"].shape,
+            clip_range=observation_clip)
+        self.goal_normalizer = create_normalizer(
+            observation_normalizer["goal"],
+            self.observation_space.shape,
+            clip_range=observation_clip)
 
         # Noise
         action_space_range = (self.actor.action_space.high -
@@ -230,12 +229,7 @@ class HerTD3(core.HerAgent):
         self._demo_replay_buffer = None
 
         # Other training attributes
-        self.total_steps = 0
-        self.num_episodes = 0
-        self.episode_steps = 0
-        self.train_steps = 0
         self._train_mode = True
-        self._summary_w = None
 
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
@@ -520,41 +514,44 @@ class HerTD3(core.HerAgent):
                            min_out=self.env.action_space.low,
                            max_out=self.env.action_space.high)
 
-    # Get/Set/Update State
+    # Agent State
     ########################
 
     def state_dict(self):
-        return {"critic1": self.critic_1.state_dict(),
-                "critic2": self.critic_2.state_dict(),
-                "actor": self.actor.state_dict(),
-                "obs_normalizer": self.obs_normalizer.state_dict(),
-                "goal_normalizer": self.goal_normalizer.state_dict()}
+        state = {"critic1": self.critic_1.state_dict(),
+                 "critic2": self.critic_2.state_dict(),
+                 "actor": self.actor.state_dict(),
+                 "obs_normalizer": self.obs_normalizer.state_dict(),
+                 "goal_normalizer": self.goal_normalizer.state_dict(),
+                 "train_steps": self._train_steps}
+
+        return state
 
     def load_state_dict(self, state):
-        if isinstance(state, dict):
-            c1_state = state['critic1']
-            c2_state = state['critic2']
-            actor_state = state['actor']
-            goal_norm_state = state.get('goal_normalizer')
-            obs_norm_state = state.get('obs_normalizer')
+        self.critic_1.load_state_dict(state['critic1'])
+        self.target_critic_1.load_state_dict(state['critic1'])
+        self.critic_2.load_state_dict(state['critic2'])
+        self.target_critic_2.load_state_dict(state['critic2'])
+        self.actor.load_state_dict(state["actor"])
+        self.target_actor.load_state_dict(state["actor"])
 
-        elif isinstance(state, list):
-            c1_state = utils.dicts_mean([o['critic1'] for o in state])
-            c2_state = utils.dicts_mean([o['critic2'] for o in state])
-            actor_state = utils.dicts_mean([o['actor'] for o in state])
-            goal_norm_state = [o.get('goal_normalizer') for o in state]
-            obs_norm_state = [o.get('obs_normalizer') for o in state]
-        else:
-            raise TypeError('state must be a list or a dict')
+        self.obs_normalizer.load_state_dict(state["obs_normalizer"])
+        self.goal_normalizer.load_state_dict(state["goal_normalizer"])
 
-        self.critic_1.load_state_dict(c1_state)
-        self.critic_2.load_state_dict(c2_state)
-        self.actor.load_state_dict(actor_state)
+        self._train_steps = state["train_steps"]
 
-        if self.obs_normalizer:
-            self.obs_normalizer.load_state_dict(obs_norm_state)
-            self.goal_normalizer.load_state_dict(goal_norm_state)
+    def aggregate_state_dicts(self, states):
+        state = {"critic1": dicts_mean([x['critic1'] for x in states]),
+                 "critic2": dicts_mean([x['critic2'] for x in states]),
+                 "actor": dicts_mean([x['actor'] for x in states])}
+        self.load_state_dict(state)
 
+        self.obs_normalizer.load_state_dict([x['obs_normalizer']
+                                             for x in states])
+        self.goal_normalizer.load_state_dict([x['goal_normalizer']
+                                              for x in states])
+
+        self._train_steps = max(x["train_steps"] for x in states)
     # Save/Load Agent
     ########################
 

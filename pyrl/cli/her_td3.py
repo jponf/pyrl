@@ -82,12 +82,13 @@ def cli_her_td3_train(environment,
                       render,
                       save, seed):
     """Trains a HER + TD3 agent on an OpenAI's gym environment."""
-    pyrl.cli.util.initialize_seed(seed)
-
-    trainer = pyrl.trainer.HerAgentTrainer(
+    trainer = pyrl.trainer.AgentTrainer(
             agent_cls=pyrl.agents.her_td3.HerTD3, env_name=environment,
             seed=seed, num_envs=num_envs, num_cpus=num_cpus,
             root_log_dir=os.path.join(save, "log"))
+
+    pyrl.cli.util.initialize_seed(seed)
+    trainer.env.seed(seed)
 
     if os.path.isdir(save):
         _LOG.info("Save path already exists, loading previously trained agent")
@@ -134,12 +135,12 @@ def cli_her_td3_train(environment,
     _LOG.debug("Critic 1 network\n%s", str(agent.critic_1))
     _LOG.debug("Critic 2 network\n%s", str(agent.critic_2))
 
-    if demo_path:
-        _LOG.info("Loading demonstrations")
-        agent.load_demonstrations(demo_path)
+    _LOG.info("Action space: %s", str(trainer.env.action_space))
+    _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
-    if render:        # Some environments must be rendered
-        env.render()  # before running
+
+    if render:                # Some environments must be rendered
+        trainer.env.render()  # before running
 
     with trainer:
         _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
@@ -153,10 +154,6 @@ def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
     try:
         for epoch in range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
-            # if epoch > 1:
-            #     _LOG.info("Synchronizing trainer")
-            #     trainer.synchronize()
-
             trainer.agent.set_train_mode()
             _run_train_epoch(trainer, epoch, num_cycles,
                              num_episodes, save_path)
@@ -186,20 +183,6 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
         save_start_time = time.time()
         trainer.agent.save(save_path, replay_buffer=True)
         _LOG.info("Agent saved [%.2fs]", time.time() - save_start_time)
-
-
-# def _run_train_cycle(trainer, epoch, cycle, num_episodes, save_path):
-#     for episode in range(1, num_episodes + 1):
-#         start_time = time.time()
-#         _LOG.info("----- EPISODE: %d/%d [EPOCH: %d | CYCLE: %d]",
-#                   episode, num_episodes, epoch, cycle)
-
-
-#         _LOG.info("Elapsed: %.2fs", time.time() - start_time)
-#         _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
-#                   " Avg. reward: %.5f, Std. reward: %.5f",
-#                   rewards[-1], np.sum(rewards),
-#                   np.mean(rewards), np.std(rewards))
 
 
 ###############################################################################

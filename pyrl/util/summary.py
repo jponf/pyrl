@@ -64,15 +64,17 @@ class Summary(BaseSummary):
         """Creates a `Summary` that will write out events and summaries
         to the event file.
         """
-        self._writter = torch.utils.SummaryWriter(
+        self._writter = torch.utils.tensorboard.SummaryWriter(
             log_dir=log_dir, purge_step=purge_step, max_queue=max_queue,
             flush_secs=flush_secs, filename_suffix=filename_suffix)
 
     def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
-        self._writter(tag=tag, scalar_value=scalar_value,
-                      global_step=global_step, walltime=walltime)
+        self._writter.add_scalar(tag=tag, scalar_value=scalar_value,
+                                 global_step=global_step, walltime=walltime)
 
     def add_scalars(self, main_tag, tag_scalar_dict,
                     global_step=None, walltime=None):
-        self._writter(main_Tag=main_tag, tag_scalar_dict=tag_scalar_dict,
-                      global_step=global_step, walltime=walltime)
+        self._writter.add_scalars(main_tag=main_tag,
+                                  tag_scalar_dict=tag_scalar_dict,
+                                  global_step=global_step,
+                                  walltime=walltime)

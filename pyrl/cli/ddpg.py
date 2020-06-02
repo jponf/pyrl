@@ -4,26 +4,20 @@ from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
 # Standard library
-import random
+import os
 import sys
 import time
 
 # SciPy stack
 import numpy as np
 
-# Torch
-import torch
-
-# OpenAI Gym
-import gym
-
 # Click (command line options)
 import click
 
 # ...
-import pyrl.agents.ddpg
-import pyrl.agents.replay_buffer
+import pyrl.agents
 import pyrl.cli.util
+import pyrl.trainer
 import pyrl.util.logging
 import pyrl.util.ugym
 
@@ -39,9 +33,11 @@ _LOG = pyrl.util.logging.get_logger()
 
 @click.command(name="ddpg-train")
 @click.argument("environment", type=str)
-@click.option("--num-epochs", type=int, default=500)
+@click.option("--num-epochs", type=int, default=20)
 @click.option("--num-episodes", type=int, default=20)
+@click.option("--num-envs", type=int, default=1)
 @click.option("--num-evals", type=int, default=1)
+@click.option("--num-cpus", type=int, default=1)
 @click.option("--gamma", type=float, default=.99, help="Discount factor")
 @click.option("--tau", type=float, default=.001, help="Polyak averaging")
 @click.option("--batch-size", type=int, default=128)
@@ -55,7 +51,7 @@ _LOG = pyrl.util.logging.get_logger()
               default="standard", help="If set to none, the observations "
                                        "won't be normalized")
 @click.option("--obs-clip", type=float, default=5.0,
-              help="Max/Min. value to clip the observations to if they are"
+              help="Min/Max. value to clip the observations to if they are"
                    " being normalized.")
 @click.option("--render/--no-render", default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
@@ -64,7 +60,9 @@ _LOG = pyrl.util.logging.get_logger()
 def cli_ddpg_train(environment,
                    num_epochs,
                    num_episodes,
+                   num_envs,
                    num_evals,
+                   num_cpus,
                    gamma,
                    tau,
                    batch_size,
@@ -76,115 +74,84 @@ def cli_ddpg_train(environment,
                    obs_clip,
                    render,
                    load, save, seed):
-    # Initialize environment
-    _LOG.info("Loading '%s'", environment)
-    env = pyrl.util.ugym.make_flat(environment)
-
+    """Trains a DDPG agent on an OpenAI's gym environment."""
+    trainer = pyrl.trainer.AgentTrainer(
+        agent_cls=pyrl.agents.DDPG, env_name=environment,
+        seed=seed, num_envs=num_envs, num_cpus=num_cpus,
+        root_log_dir=os.path.join(save, "log"))
     pyrl.cli.util.initialize_seed(seed)
-    env.seed(seed)
-
-    _LOG.info("Action space: %s", str(env.action_space))
-    _LOG.info("Observation space: %s", str(env.observation_space))
+    trainer.env.seed(seed)
 
     if load:
-        print("Loading agent")
-        agent = pyrl.agents.ddpg.DDPG.load(load, replay_buffer=True)
+        _LOG.info("Loading agent")
+        trainer.initialize_agent(agent_path=load)
     else:
-        print("Initializing new agent")
+        _LOG.info("Initializing new agent")
+        trainer.initialize_agent(
+            agent_kwargs=dict(gamma=gamma,
+                              tau=tau,
+                              batch_size=batch_size,
+                              reward_scale=reward_scale,
+                              replay_buffer_size=replay_buffer,
+                              actor_lr=1e-3,
+                              critic_lr=1e-3,
+                              observation_normalizer=obs_normalizer,
+                              observation_clip=obs_clip,
+                              action_noise=action_noise,
+                              parameter_noise=parameter_noise)
+        )
 
-        agent = pyrl.agents.ddpg.DDPG(
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            gamma=gamma,
-            tau=tau,
-            batch_size=batch_size,
-            reward_scale=reward_scale,
-            replay_buffer_size=replay_buffer,
-            actor_lr=0.001,
-            critic_lr=0.001,
-            observation_normalizer=obs_normalizer,
-            observation_clip=obs_clip,
-            action_noise=action_noise,
-            parameter_noise=parameter_noise)
+    _LOG.info("Agent Data")
+    _LOG.info("  = Train steps: %d", trainer.agent.num_train_steps)
+    _LOG.info("  = Replay buffer: %d", len(trainer.agent.replay_buffer))
+    _LOG.info("    = Max. Size: %d", trainer.agent.replay_buffer.max_size)
 
-    _LOG.info("Agent trained for %d episodes", agent.num_episodes)
-    _LOG.info("  = # steps: %d", agent.total_steps)
-    _LOG.info("  = Replay buffer: %d", len(agent.replay_buffer))
-    _LOG.info("    = Max. Size: %d", agent.replay_buffer.max_size)
+    _LOG.debug("Actor network\n%s", str(trainer.agent.actor))
+    _LOG.debug("Critic network\n%s", str(trainer.agent.critic))
 
-    _LOG.debug("Actor network\n%s", str(agent.actor))
-    _LOG.debug("Critic network\n%s", str(agent.critic))
+    _LOG.info("Action space: %s", str(trainer.env.action_space))
+    _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
-    if render:        # Some environments must be rendered
-        env.render()  # before running
+    if render:                # Some environments must be rendered
+        trainer.env.render()  # before running
 
-    agent.set_train_mode()
+    with trainer:
+        _run_train(trainer, num_epochs, num_episodes, num_evals, save)
+
+    sys.exit(0)
+
+
+def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
     try:
-        total_episodes = 0
         for epoch in range(1, num_epochs + 1):
-            print("===== EPOCH: {}/{}".format(epoch, num_epochs))
-            for episode in range(1, num_episodes + 1):
-                total_episodes += 1
-                print("----- EPISODE: {}/{} [{}]".format(
-                      episode, num_episodes, total_episodes))
-                episode_rewards = []
-                start_time = time.time()
-                state = env.reset()
-                agent.begin_episode()
+            _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
+            trainer.agent.set_train_mode()
+            _run_train_epoch(trainer, epoch, num_episodes, save_path)
 
-                for rollout_idx in range(env.spec.max_episode_steps):
-                    print(".", end="", file=sys.stdout)
-                    sys.stdout.flush()
-
-                    action = agent.compute_action(state)
-                    next_state, reward, done, info = env.step(action)
-                    if render:
-                        env.render()
-
-                    agent.update(state, action, reward, next_state, done)
-                    state = next_state
-                    episode_rewards.append(reward)
-                    # Episode finished before exhausting the # of steps
-                    if done:
-                        print("[DONE]", end="", file=sys.stdout)
-                        break
-
-                # End rollouts
-                print("")
-                agent.end_episode()
-                episode_rewards = np.array(episode_rewards)
-
-                # Train (train_steps == last num rollouts)
-                for _ in range(rollout_idx + 1):
-                    print("+", end="", file=sys.stdout)
-                    sys.stdout.flush()
-                    agent.train()
-                print("")
-
-                print("Elapsed: {:.2f}s, Sum reward: {}, Avg. reward: {},"
-                      " Std. reward: {}"
-                      .format(time.time() - start_time,
-                              np.sum(episode_rewards),
-                              np.mean(episode_rewards),
-                              np.std(episode_rewards)))
-
-                distance = agent.adapt_parameter_noise()
-                if distance is not None:
-                    print("Parameter noise distance:", distance)
+            save_start_time = time.time()
+            trainer.agent.save(save_path, replay_buffer=True)
+            _LOG.info("Agent saved [%.2fs]", time.time() - save_start_time)
 
             # End episodes
-            print("----- EVALUATING")
-            agent.set_eval_mode()
-            for _ in range(num_evals):
-                _evaluate(env.spec.max_episode_steps, agent, env, render)
-            agent.set_train_mode()
+            _LOG.info("----- EVALUATING")
+            trainer.agent.set_eval_mode()
+            _evaluate(trainer.agent, trainer.env, num_evals, render=False)
         # End epochs
+    except KeyboardInterrupt:
+        _LOG.warn("Exiting due to keyboard interruption")
     finally:
-        print("Saving agent before exiting")
-        agent.save(save)
-        env.close()
+        _LOG.info("Saving agent before exiting")
+        trainer.agent.save(save_path, replay_buffer=True)
+        trainer.env.close()
 
-    return 0
+
+def _run_train_epoch(trainer, epoch, num_episodes, save_path):
+    for episode in range(1, num_episodes + 1):
+        episode_start_time = time.time()
+        _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]",
+                  episode, num_episodes, epoch)
+        trainer.run(num_episodes=1, train_steps=0)
+        _LOG.info("Elapsed: %.2fs", time.time() - episode_start_time)
 
 
 ###############################################################################
@@ -193,71 +160,53 @@ def cli_ddpg_train(environment,
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
-@click.option("--num-steps", type=int, default=20)
-@click.option("--seed", type=int, default=1234)
-def cli_ddpg_test(environment, agent_path, num_episodes, num_steps, seed):
-    print("Loading '{}'".format(environment), end=" ", file=sys.stdout)
-    sys.stdout.flush()
-    env = gym.make(environment)
-    env = env.unwrapped
-    print("... environment loaded", file=sys.stdout)
-    _initialize_seed(seed, env)
+@click.option("--seed", type=int, default=int(time.time()))
+def cli_ddpg_test(environment, agent_path, num_episodes, seed):
+    """Runs a previously trained DDPG agent on an OpenAI's gym environment."""
+    _LOG.info("Loading '%s'", environment)
+    env = pyrl.util.ugym.make_flat(environment)
+    pyrl.cli.util.initialize_seed(seed)
+    env.seed(seed)
 
-    print("Loading agent from '{}'".format(agent_path))
-    agent = pyrl.agents.ddpg.DDPG.load(agent_path, replay_buffer=False)
+    _LOG.info("Loading agent from %s", agent_path)
+    agent = pyrl.agents.DDPG.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
-    print("Agent trained for", agent.num_episodes, "episodes")
-    print("  - # steps:", agent.total_steps)
-    print("Action space size:", agent.action_space)
-    print("Observation space size:", agent.observation_space)
+    _LOG.info("Agent trained for %d stes", agent.num_train_steps)
+    _LOG.info("Action space size: %s", str(agent.action_space))
+    _LOG.info("Observation space size: %s", str(agent.observation_space))
 
     env.render()  # Some environments must be rendered before running
     all_rewards = []
     for episode in range(num_episodes):
-        print("Running episode {}/{}".format(episode + 1, num_episodes))
-        input("Press enter to start episode")
-        rewards = _evaluate(num_steps, agent, env, render=True)
-        all_rewards.append(rewards)
+        _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
+        rewards = _evaluate(agent, env, num_evals=1, render=True)
+        all_rewards.extend(rewards)
+
     env.close()
-
     sum_score = sum(x.sum() for x in all_rewards)
-    print("Average sum score over", len(all_rewards),
-          "runs:", sum_score / len(all_rewards))
+    _LOG.info("Average sum score over %d runs: %d",
+              len(all_rewards), sum_score / len(all_rewards))
 
-    return 0
+    sys.exit(0)
 
 
 ###############################################################################
 
-def _initialize_seed(seed, env):
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    env.seed(seed)
+def _evaluate(agent, env, num_evals, render):
+    all_rewards = []
 
+    for _ in range(num_evals):
+        rewards, infos, done = pyrl.cli.util.evaluate(
+            agent, env, env.spec.max_episode_steps, render)
 
-def _evaluate(max_steps, agent, env, render):
-    rewards = []
-    done = False
-
-    state = env.reset()
-    for _ in range(max_steps):
-        action = agent.compute_action(state)
-        next_state, reward, done, _ = env.step(action)
-        if render:
-            env.render()
-
-        state = next_state
-        rewards.append(reward)
-
+        all_rewards.append(rewards)
         if done:
-            print("[DONE]", end="", file=sys.stdout)
-            break
+            _LOG.info("[DONE]")
 
-    rewards = np.array(rewards)
-    print("", file=sys.stdout)
-    print("Last reward: {}, Sum reward: {}, Avg. reward: {},"
-          " Std. reward: {}".format(rewards[-1], np.sum(rewards),
-                                    np.mean(rewards), np.std(rewards)))
-    return rewards
+        _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
+                  " Avg. reward: %.5f, Std. reward: %.5f",
+                  rewards[-1], np.sum(rewards),
+                  np.mean(rewards), np.std(rewards))
+
+    return all_rewards
