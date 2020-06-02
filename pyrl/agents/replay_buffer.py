@@ -62,13 +62,10 @@ class FlatReplayBuffer(object):
         return self._size
 
     def __repr__(self):
-        fmt = ("ReplayBuffer(state_dim={!r}, action_dim={!r},"
+        fmt = ("FlatReplayBuffer(state_dim={!r}, action_dim={!r},"
                " max_size={!r}, dtype={!r})")
         return fmt.format(self.state.shape[1:], self.action.shape[1:],
                           self._max_size, self.state.dtype)
-
-    def __str__(self):
-        return repr(self)
 
     @property
     def max_size(self):
@@ -389,7 +386,7 @@ class EpisodicReplayBuffer(object):
             np.copyto(self._e_size[:copy_size], e_size[copy_indices])
 
     def __repr__(self):
-        fmt = ("ReplayBuffer(state_shape={:!r}, action_shape={:!r},"
+        fmt = ("EpisodicReplayBuffer(state_shape={:!r}, action_shape={:!r},"
                " max_episodes={:!r}, max_steps={:!r}, dtype={:!r})")
         return fmt.format(self.state.shape[2:], self.action.shape[2:],
                           self._max_episodes, self._max_steps,
@@ -443,9 +440,9 @@ class HerReplayBuffer(object):
         self.achieved_goal = np.empty(arr_dim + goal_shape, dtype=dtype)
 
         # Temporary buffer to store episode data
-        self._obs = np.empty((max_steps, *obs_shape), dtype=dtype)
-        self._action = np.empty((max_steps, *action_shape), dtype=dtype)
-        self._next_obs = np.empty((max_steps, *obs_shape), dtype=dtype)
+        self._obs = np.empty((max_steps,) + obs_shape, dtype=dtype)
+        self._action = np.empty((max_steps,) + action_shape, dtype=dtype)
+        self._next_obs = np.empty((max_steps,) + obs_shape, dtype=dtype)
         self._reward = np.empty((max_steps, 1), dtype=dtype)
         self._terminal = np.empty((max_steps, 1), dtype=np.bool)
 
