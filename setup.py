@@ -4,8 +4,30 @@ from __future__ import (
     absolute_import, print_function, division, unicode_literals
 )
 
+import codecs
+import os.path
+
 from setuptools import find_packages, setup
 
+
+###############################################################################
+
+def read_rel(rel_path):
+    here = os.path.abspath(os.path.dirname(__file__))
+    with codecs.open(os.path.join(here, rel_path), 'r') as fp:
+        return fp.read()
+
+
+def get_version(rel_path):
+    for line in read_rel(rel_path).splitlines():
+        if line.startswith('__version__'):
+            delim = '"' if '"' in line else "'"
+            return line.split(delim)[1]
+    else:
+        raise RuntimeError("Unable to find version string.")
+
+
+###############################################################################
 
 # Comma separated list of names and emails
 AUTHORS = "Josep Pon, Guillem Orellana"
@@ -16,11 +38,11 @@ EMAILS = "Josep.Pon@gft.com, Guillem.Orellana@gft.com"
 DESCRIPTION = ""
 
 # Long description
-with open("README.md", encoding="utf-8") as f:
+with open("README.md", "rt") as f:
     README = f.read()
 
 # Requirements
-with open("requirements.txt", encoding="utf-8") as f:
+with open("requirements.txt", "rt") as f:
     REQUIREMENTS = [x for x in map(str.strip, f.read().splitlines())
                     if x and not x.startswith("#")]
 
@@ -40,7 +62,7 @@ kwargs = {
 
 setup(
     name='pyrl',
-    version="0.0.1",
+    version=get_version(os.path.join("pyrl", "__init__.py")),
     description=DESCRIPTION,
     long_description=README,
     author=AUTHORS,
