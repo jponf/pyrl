@@ -2,6 +2,8 @@
 
 import random
 
+import six
+
 # SciPy Stack
 import numpy as np
 
@@ -31,7 +33,7 @@ def evaluate(agent, env, max_steps, render):
     done = False
 
     state = env.reset()
-    for _ in range(max_steps):
+    for _ in six.moves.range(max_steps):
         action = agent.compute_action(state)
         next_state, reward, done, info = env.step(action)
         if render:

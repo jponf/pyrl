@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import (absolute_import, print_function, division,
+                        unicode_literals)
+
 import abc
 import six
 import tqdm.auto as tqdm
@@ -101,7 +104,7 @@ class BaseAgent(object):
             t_steps = tqdm.trange(steps, desc="Train step",
                                   dynamic_ncols=True)
         else:
-            t_steps = range(steps)
+            t_steps = six.moves.range(steps)
 
         for _ in t_steps:
             self._train()

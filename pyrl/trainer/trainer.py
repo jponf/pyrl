@@ -5,6 +5,8 @@ import multiprocessing as mp
 import os
 import random
 
+import six
+
 # OpenAI's Gym
 import gym
 
@@ -72,7 +74,7 @@ class AgentTrainer(object):
             num_threads = max(1, int(self._num_cpus / self._num_envs))
             _LOG.debug("Configuring workers with %d threads", num_threads)
 
-        for i in range(self._num_envs):
+        for i in six.moves.range(self._num_envs):
             log_dir = os.path.join(self._root_log_dir, "env{}".format(i))
             self._workers.append(
                 Trainer(
@@ -204,11 +206,11 @@ class Trainer(mp.Process):
     def _run(self, env, agent, num_episodes, train_steps):
         total_steps = 0
 
-        for _ in range(num_episodes):
+        for _ in six.moves.range(num_episodes):
             state = env.reset()
             agent.begin_episode()
 
-            for _ in range(env.spec.max_episode_steps):
+            for _ in six.moves.range(env.spec.max_episode_steps):
                 action = agent.compute_action(state)
                 next_state, reward, done, info = env.step(action)
                 agent.update(state=state,
