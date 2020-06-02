@@ -292,7 +292,7 @@ class HerDDPG(HerAgent):
         with torch.no_grad():
             next_action = self.target_actor(next_obs, goal)
             target_q = self.target_critic(next_obs, goal, next_action)
-            target_q = (1 - terminal.int()) * self.gamma + target_q
+            target_q = (1 - terminal.int()) * self.gamma * target_q
             target_q += self.reward_scale + reward
 
         # Optimize critic

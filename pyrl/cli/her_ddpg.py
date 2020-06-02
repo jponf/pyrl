@@ -216,16 +216,21 @@ def cli_her_ddpg_test(environment, agent_path, num_episodes, num_steps,
 
 ###############################################################################
 
-def _evaluate(agent, env, num_evals, num_steps, render):
+def _evaluate(agent, num_evals, render):
     all_rewards = []
     all_success = []
+
     for _ in range(num_evals):
-        rewards, infos, done = pyrl.cli.util.evaluate(agent, env, num_steps,
-                                                      render)
+        rewards, infos, done = pyrl.cli.util.evaluate(
+            agent, agent.env, agent.max_episode_steps, render)
+
+        success = any(x["is_success"] for x in infos)
         all_rewards.append(rewards)
-        all_success.append(any(x.get("is_success", False) for x in infos))
-        if done:
-            _LOG.info("[DONE]")
+        all_success.append(success)
+
+        if success:
+            _LOG.info("[SUCCESS]")
+
         _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
                   " Avg. reward: %.5f, Std. reward: %.5f",
                   rewards[-1], np.sum(rewards),

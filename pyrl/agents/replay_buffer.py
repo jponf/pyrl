@@ -426,10 +426,10 @@ class HerReplayBuffer(object):
         # If shapes are integers transform them to tuples
         if isinstance(obs_shape, six.integer_types):
             obs_shape = (obs_shape,)
-        if isinstance(action_shape, six.integer_types):
-            action_shape = (action_shape,)
         if isinstance(goal_shape, six.integer_types):
             goal_shape = (goal_shape,)
+        if isinstance(action_shape, six.integer_types):
+            action_shape = (action_shape,)
 
         # Replay Buffer
         arr_dim = (max_episodes, max_steps)
@@ -477,15 +477,15 @@ class HerReplayBuffer(object):
 
     @property
     def action_shape(self):
-        return self.action.shape[-2:]
+        return self.action.shape[-1:]
 
     @property
     def goal_shape(self):
-        return self.goal.shape[-2:]
+        return self.goal.shape[-1:]
 
     @property
     def obs_shape(self):
-        return self.obs.shape[-2:]
+        return self.obs.shape[-1:]
 
     @property
     def max_episodes(self):
