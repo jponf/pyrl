@@ -8,6 +8,9 @@ import random
 # OpenAI's Gym
 import gym
 
+# PyTorch
+import torch
+
 # ...
 import pyrl.agents.core
 import pyrl.util.logging
@@ -64,14 +67,19 @@ class AgentTrainer(object):
                                           agent_path=agent_path,
                                           demo_path=demo_path)
 
+        num_threads = 0  # let the libraries decide
+        if self._num_cpus > 1:
+            num_threads = max(1, int(self._num_cpus / self._num_envs))
+            _LOG.debug("Configuring workers with %d threads", num_threads)
+
         for i in range(self._num_envs):
             log_dir = os.path.join(self._root_log_dir, "env{}".format(i))
             self._workers.append(
                 Trainer(
                     agent_cls=self._agent_cls, env_name=self._env_name,
-                    seed=self._seed + i, agent_log_dir=log_dir,
-                    agent_kwargs=agent_kwargs, agent_path=agent_path,
-                    demo_path=demo_path)
+                    seed=self._seed + i, num_threads=num_threads,
+                    agent_log_dir=log_dir, agent_kwargs=agent_kwargs,
+                    agent_path=agent_path, demo_path=demo_path)
             )
 
     def start(self):
@@ -143,13 +151,15 @@ class AgentTrainer(object):
 
 class Trainer(mp.Process):
 
-    def __init__(self, agent_cls, env_name, seed,
+    def __init__(self, agent_cls, env_name, seed, num_threads,
                  agent_log_dir, agent_kwargs=None, agent_path="",
                  demo_path=""):
         super().__init__()
         self.agent_cls = agent_cls
         self.env_name = env_name
         self.seed = seed
+        self.num_threads = num_threads
+
         self.agent_kwargs = agent_kwargs
         self.agent_path = agent_path
         self.agent_log_dir = agent_log_dir
@@ -160,6 +170,9 @@ class Trainer(mp.Process):
         self.parent_pipe, self.child_pipe = mp.Pipe(duplex=True)
 
     def run(self):
+        if self.num_threads > 0:
+            torch.set_num_threads(self.num_threads)
+
         agent, env = _initialize_agent(self.agent_cls, self.env_name,
                                        agent_kwargs=self.agent_kwargs,
                                        agent_path=self.agent_path,
@@ -168,20 +181,25 @@ class Trainer(mp.Process):
         env.seed(self.seed)
         agent.set_train_mode()
         agent.init_summary_writter(self.agent_log_dir)
+        self._run_loop(agent, env)
 
-        while True:
-            msg, data = self.child_pipe.recv()
+    def _run_loop(self, agent, env):
+        try:
+            while True:
+                msg, data = self.child_pipe.recv()
 
-            if msg == _Message.RUN:
-                self._run(env, agent, *data)
-            elif msg == _Message.EXIT:
-                if data:  # Master is waiting
-                    self.child_pipe.send(_Message.EXIT)
-                break
-            elif msg == _Message.SYNC:
-                agent.load_state_dict(data)
-            else:
-                raise RuntimeError("unknown message {}".format(msg))
+                if msg == _Message.RUN:
+                    self._run(env, agent, *data)
+                elif msg == _Message.EXIT:
+                    if data:  # Master is waiting
+                        self.child_pipe.send(_Message.EXIT)
+                    break
+                elif msg == _Message.SYNC:
+                    agent.load_state_dict(data)
+                else:
+                    raise RuntimeError("unknown message {}".format(msg))
+        except KeyboardInterrupt:
+            pass
 
     def _run(self, env, agent, num_episodes, train_steps):
         total_steps = 0

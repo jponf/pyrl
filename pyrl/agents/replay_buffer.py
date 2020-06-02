@@ -416,7 +416,7 @@ class HerReplayBuffer(object):
     :param rand: Numpy's random number generator.
     """
 
-    def __init__(self, state_shape, action_shape, goal_shape,
+    def __init__(self, obs_shape, goal_shape, action_shape,
                  max_episodes, max_steps, dtype=np.float32,
                  rand=None):
         assert max_steps > 0
@@ -424,8 +424,8 @@ class HerReplayBuffer(object):
         # Check memory size and warn?
 
         # If shapes are integers transform them to tuples
-        if isinstance(state_shape, six.integer_types):
-            state_shape = (state_shape,)
+        if isinstance(obs_shape, six.integer_types):
+            obs_shape = (obs_shape,)
         if isinstance(action_shape, six.integer_types):
             action_shape = (action_shape,)
         if isinstance(goal_shape, six.integer_types):
@@ -433,9 +433,9 @@ class HerReplayBuffer(object):
 
         # Replay Buffer
         arr_dim = (max_episodes, max_steps)
-        self.obs = np.empty(arr_dim + state_shape, dtype=dtype)
+        self.obs = np.empty(arr_dim + obs_shape, dtype=dtype)
         self.action = np.empty(arr_dim + action_shape, dtype=dtype)
-        self.next_obs = np.empty(arr_dim + state_shape, dtype=dtype)
+        self.next_obs = np.empty(arr_dim + obs_shape, dtype=dtype)
         self.reward = np.empty(arr_dim + (1,), dtype=dtype)
         self.terminal = np.empty(arr_dim + (1,), dtype=np.bool)
 
@@ -443,9 +443,9 @@ class HerReplayBuffer(object):
         self.achieved_goal = np.empty(arr_dim + goal_shape, dtype=dtype)
 
         # Temporary buffer to store episode data
-        self._obs = np.empty((max_steps, *state_shape), dtype=dtype)
+        self._obs = np.empty((max_steps, *obs_shape), dtype=dtype)
         self._action = np.empty((max_steps, *action_shape), dtype=dtype)
-        self._next_obs = np.empty((max_steps, *state_shape), dtype=dtype)
+        self._next_obs = np.empty((max_steps, *obs_shape), dtype=dtype)
         self._reward = np.empty((max_steps, 1), dtype=dtype)
         self._terminal = np.empty((max_steps, 1), dtype=np.bool)
 
@@ -476,16 +476,16 @@ class HerReplayBuffer(object):
         return repr(self)
 
     @property
-    def action_dim(self):
-        return self.action.shape[-1]
+    def action_shape(self):
+        return self.action.shape[-2:]
 
     @property
-    def goal_dim(self):
-        return self.goal.shape[-1]
+    def goal_shape(self):
+        return self.goal.shape[-2:]
 
     @property
-    def obs_dim(self):
-        return self.obs.shape[-1]
+    def obs_shape(self):
+        return self.obs.shape[-2:]
 
     @property
     def max_episodes(self):
@@ -616,7 +616,7 @@ class HerReplayBuffer(object):
                 goal, achieved_goal)
 
     def sample_batch_torch(self, sample_size, replay_k,
-                           reward_fn, gamma, n_steps, device="cpu"):
+                           reward_fn, device="cpu"):
         """Samples a batch of size `sample_size` and transforms the
         values to torch tensors before returning them.
 
@@ -624,7 +624,7 @@ class HerReplayBuffer(object):
         """
         return tuple(torch.from_numpy(x).to(device)
                      for x in self.sample_batch(sample_size, replay_k,
-                                                reward_fn, gamma, n_steps))
+                                                reward_fn))
 
     def save(self, path):
         """Saves the replay buffer in hdf5 format into the file pointed

@@ -412,6 +412,9 @@ class DDPG(Agent):
 
 def _build_ac(observation_space, action_space, actor_cls, actor_kwargs,
               critic_cls, critic_kwargs, parameter_noise):
+    if parameter_noise:
+        actor_kwargs["layer_norm"] = True
+
     actor = create_actor(observation_space, action_space,
                          actor_cls, actor_kwargs).to(_DEVICE)
     target_actor = create_actor(observation_space, action_space,
