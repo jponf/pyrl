@@ -6,7 +6,9 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-import pickle
+import six.moves.cPickle as pickle
+
+import six
 
 # Scipy
 import numpy as np
@@ -269,17 +271,16 @@ class TD3(Agent):
             self._update_target_networks()
 
     def _update_target_networks(self):
-        for target_param, param in zip(self.target_actor.parameters(),
-                                       self.actor.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
-
-        for target_param, param in zip(self.target_critic_1.parameters(),
-                                       self.critic_1.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
-
-        for target_param, param in zip(self.target_critic_2.parameters(),
-                                       self.critic_2.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
+        a_params = six.moves.zip(self.target_actor.parameters(),
+                                 self.actor.parameters())
+        c1_params = six.moves.zip(self.target_critic_1.parameters(),
+                                  self.critic_1.parameters())
+        c2_params = six.moves.zip(self.target_critic_2.parameters(),
+                                  self.critic_2.parameters())
+        for params in (a_params, c1_params, c2_params):
+            for target_param, param in params:
+                target_param.data.mul_(1.0 - self.tau)
+                target_param.data.add_(param.data * self.tau)
 
     # Agent State
     ########################
