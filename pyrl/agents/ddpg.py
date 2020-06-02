@@ -6,7 +6,9 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-import pickle
+import six.moves.cPickle as pickle
+
+import six
 
 # Scipy
 import numpy as np
@@ -249,13 +251,15 @@ class DDPG(Agent):
         self._update_target_networks()
 
     def _update_target_networks(self):
-        for target_param, param in zip(self.target_actor.parameters(),
-                                       self.actor.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
+        a_params = six.moves.zip(self.target_actor.parameters(),
+                                 self.actor.parameters())
+        c_params = six.moves.zip(self.target_critic.parameters(),
+                                 self.critic.parameters())
 
-        for target_param, param in zip(self.target_critic.parameters(),
-                                       self.critic.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
+        for params in (a_params, c_params):
+            for target_param, param in params:
+                target_param.data.mul_(1.0 - self.tau)
+                target_param.data.add_(param.data * self.tau)
 
     @torch.no_grad()
     def adapt_parameter_noise(self):
@@ -438,7 +442,8 @@ def _perturb_actor(actor, perturbed_actor, param_noise_std):
 
     a_params = actor.named_parameters()
     p_params = perturbed_actor.named_parameters()
-    for (a_name, a_param), (p_name, p_param) in zip(a_params, p_params):
+    for (a_name, a_param), (p_name, p_param) in six.moves.zip(a_params,
+                                                              p_params):
         assert a_name == p_name
         if a_name in perturbable_params:
             noise = torch.normal(mean=0, std=param_noise_std,

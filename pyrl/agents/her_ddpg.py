@@ -358,13 +358,15 @@ class HerDDPG(HerAgent):
         return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
 
     def _update_target_networks(self):
-        for target_param, param in zip(self.target_actor.parameters(),
-                                       self.actor.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
+        a_params = six.moves.zip(self.target_actor.parameters(),
+                                 self.actor.parameters())
+        c_params = six.moves.zip(self.target_critic.parameters(),
+                                 self.critic.parameters())
 
-        for target_param, param in zip(self.target_critic.parameters(),
-                                       self.critic.parameters()):
-            target_param.data.mul_(1.0 - self.tau).add_(param.data * self.tau)
+        for params in (a_params, c_params):
+            for target_param, param in params:
+                target_param.data.mul_(1.0 - self.tau)
+                target_param.data.add_(param.data * self.tau)
 
     # Utilities
     ########################
