@@ -9,6 +9,8 @@ import os
 import sys
 import time
 
+import six
+
 # SciPy stack
 import numpy as np
 
@@ -151,7 +153,7 @@ def cli_her_td3_train(environment,
 def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
                save_path):
     try:
-        for epoch in range(1, num_epochs + 1):
+        for epoch in six.moves.range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
             trainer.agent.set_train_mode()
             _run_train_epoch(trainer, epoch, num_cycles,
@@ -171,7 +173,7 @@ def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
 
 
 def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
-    for cycle in range(1, num_cycles + 1):
+    for cycle in six.moves.range(1, num_cycles + 1):
         cycle_start_time = time.time()
         _LOG.info("----- CYCLE: %d/%d [EPOCH: %d]", cycle, num_cycles, epoch)
         _LOG.info("Running %d episodes", num_episodes)
@@ -211,7 +213,7 @@ def cli_her_td3_test(environment, agent_path, num_episodes, pause, seed):
 
     all_rewards = []
     all_success = []
-    for episode in range(num_episodes):
+    for episode in six.moves.range(num_episodes):
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
@@ -236,7 +238,7 @@ def _evaluate(agent, num_evals, render):
     all_rewards = []
     all_success = []
 
-    for _ in range(num_evals):
+    for _ in six.moves.range(num_evals):
         rewards, infos, done = pyrl.cli.util.evaluate(
             agent, agent.env, agent.max_episode_steps, render)
 

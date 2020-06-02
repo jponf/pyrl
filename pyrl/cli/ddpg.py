@@ -8,6 +8,8 @@ import os
 import sys
 import time
 
+import six
+
 # SciPy stack
 import numpy as np
 
@@ -123,7 +125,7 @@ def cli_ddpg_train(environment,
 
 def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
     try:
-        for epoch in range(1, num_epochs + 1):
+        for epoch in six.moves.range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
             trainer.agent.set_train_mode()
             _run_train_epoch(trainer, epoch, num_episodes, save_path)
@@ -146,7 +148,7 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
 
 
 def _run_train_epoch(trainer, epoch, num_episodes, save_path):
-    for episode in range(1, num_episodes + 1):
+    for episode in six.moves.range(1, num_episodes + 1):
         episode_start_time = time.time()
         _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]",
                   episode, num_episodes, epoch)
@@ -178,7 +180,7 @@ def cli_ddpg_test(environment, agent_path, num_episodes, seed):
 
     env.render()  # Some environments must be rendered before running
     all_rewards = []
-    for episode in range(num_episodes):
+    for episode in six.moves.range(num_episodes):
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         rewards = _evaluate(agent, env, num_evals=1, render=True)
         all_rewards.extend(rewards)
@@ -196,7 +198,7 @@ def cli_ddpg_test(environment, agent_path, num_episodes, seed):
 def _evaluate(agent, env, num_evals, render):
     all_rewards = []
 
-    for _ in range(num_evals):
+    for _ in six.moves.range(num_evals):
         rewards, infos, done = pyrl.cli.util.evaluate(
             agent, env, env.spec.max_episode_steps, render)
 

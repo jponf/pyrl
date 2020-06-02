@@ -5,6 +5,8 @@ from __future__ import (absolute_import, print_function, division,
 
 import collections
 
+import six
+
 # SciPy
 import numpy as np
 
@@ -35,7 +37,7 @@ class CriticMLP(nn.Module):
 
         input_size = observation_space.shape[0] + action_space.shape[0]
         layers = []
-        for i in range(0, hidden_layers + 1):  # input + hidden
+        for i in six.moves.range(0, hidden_layers + 1):  # input + hidden
             layers.append(("linear{}".format(i),
                            nn.Linear(hidden_size if i > 0 else input_size,
                                      hidden_size)))
@@ -81,7 +83,7 @@ class ActorMLP(nn.Module):
             dtype=np.float32)
 
         layers = []
-        for i in range(0, hidden_layers + 1):  # input + hidden
+        for i in six.moves.range(0, hidden_layers + 1):  # input + hidden
             layers.append(("linear{}".format(i),
                            nn.Linear(hidden_size if i > 0 else input_size,
                                      hidden_size)))
