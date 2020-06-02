@@ -117,7 +117,7 @@ class HerCriticMLP(CriticMLP):
     """
 
     def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=512,
+                 hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,
                  *args, **kwargs):
         if not isinstance(observation_space, gym.spaces.Dict):
@@ -151,7 +151,7 @@ class HerActorMLP(ActorMLP):
     """
 
     def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=512,
+                 hidden_layers=3, hidden_size=256,
                  activation="relu",
                  layer_norm=False,
                  *args, **kwargs):

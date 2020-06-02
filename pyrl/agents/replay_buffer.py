@@ -446,8 +446,8 @@ class HerReplayBuffer(object):
         self._reward = np.empty((max_steps, 1), dtype=dtype)
         self._terminal = np.empty((max_steps, 1), dtype=np.bool)
 
-        self._goal = np.empty((max_steps, *goal_shape), dtype=dtype)
-        self._achieved_goal = np.empty((max_steps, *goal_shape), dtype=dtype)
+        self._goal = np.empty((max_steps,) + goal_shape, dtype=dtype)
+        self._achieved_goal = np.empty((max_steps,) + goal_shape, dtype=dtype)
 
         self._max_episodes = max_episodes
         self._max_steps = max_steps
