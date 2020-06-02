@@ -3,6 +3,7 @@
 from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
+import collections
 import errno
 import os
 import pickle
@@ -15,15 +16,15 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-# robotrl
-import pyrl.agents.core as core
+# ...
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
+from .core import Agent
 from .noise import AdaptiveParamNoiseSpec
 from .replay_buffer import FlatReplayBuffer
 from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic)
+                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
@@ -34,7 +35,12 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
-class DDPG(core.Agent):
+class DDPG(Agent):
+    """Deep Deterministic Policy Gradients.
+
+    Introduced in the paper: Continuous Control With Deep Reinforcement
+    Learning
+    """
 
     def __init__(self,
                  observation_space,
@@ -72,6 +78,18 @@ class DDPG(core.Agent):
         :param replay_buffer_size: Number of transitions to store in the replay
             buffer.
         :type replay_buffer_size: int
+        :param actor_cls: Actor network class.
+        :type actor_cls: type
+        :param actor_kwargs: Arguments to initialize the actor network.
+        :type actor_kwargs: dict
+        :param actor_lr: Learning rate for the actor network.
+        :type actor_lr: float
+        :param critic_cls: Critic network class.
+        :type critic_cls: type
+        :param actor_kwargs: Arguments to initialize the critic network.
+        :type actor_kwargs: dict
+        :param critic_lr: Learning rate for the critic network.
+        :type critic_lr: float
         :param observation_normalizer: Normalize the environment observations
             according to a normalizer. observation_normalizer can either be
             "none" or "standard".
@@ -80,12 +98,6 @@ class DDPG(core.Agent):
             normalized. This parameter will only take effect when normalizer
             is not set to "none".
         :type observation_clip: float
-
-        :param actor_lr: Learning rate for the actor network.
-        :type actor_lr: float
-
-        :param critic_lr: Learning rate for the critic network.
-        :type critic_lr: float
         :param action_noise: Name and standard deviaton of the action noise
             expressed as name_std, i.e., ou_0.2 or normal_0.1. Use "none" to
             disable the use of action noise.
@@ -94,11 +106,7 @@ class DDPG(core.Agent):
             while training the agent.
         :type parameter_noise: bool
         """
-        super().__init__()
-
-        self.observation_space = observation_space
-        self.action_space = action_space
-
+        super(DDPG, self).__init__(observation_space, action_space)
         self.gamma = gamma
         self.tau = tau
 
@@ -129,7 +137,7 @@ class DDPG(core.Agent):
                                            lr=critic_lr)
 
         # Normalizer
-        self._obs_normalizer = observation_normalizer
+        self._obs_normalizer_arg = observation_normalizer
         self.obs_normalizer = create_normalizer(observation_normalizer,
                                                 self.observation_space.shape,
                                                 clip_range=observation_clip)
@@ -153,26 +161,13 @@ class DDPG(core.Agent):
             self.param_noise = None
             self.perturbed_actor = None
 
-        # Other attributes
-        self.total_steps = 0
-        self.num_episodes = 0
-        self.episode_steps = 0
-        self.train_steps = 0
-        self._train_mode = True
-
-    def set_eval_mode(self):
-        """Sets the agent in evaluation mode."""
-        self.set_train_mode(mode=False)
-
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
+        super(DDPG, self).set_train_mode(mode)
         self.critic.train(mode=mode)
         self.actor.train(mode=mode)
-        self._train_mode = mode
 
     def begin_episode(self):
-        self.num_episodes += 1
-        self.episode_steps = 0
         self.action_noise.reset()
         if self.param_noise is not None:
             _perturb_actor(self.actor, self.perturbed_actor,
@@ -181,27 +176,19 @@ class DDPG(core.Agent):
     def end_episode(self):
         pass
 
-    def update(self, state, action, reward, next_state, done):
-        self.total_steps += 1
-        self.episode_steps += 1
+    def update(self, state, action, reward, next_state, terminal):
+        action = self._to_actor_space(action)  # re-scale action
 
-        # register observation into normalizer
         self.obs_normalizer.update(torch.FloatTensor(state))
-
-        # re-scale action
-        action = self._to_actor_space(action)
-
-        # add a batch dimension and store
         self.replay_buffer.add(state=state, action=action,
                                next_state=next_state,
-                               reward=reward, terminal=done)
+                               reward=reward, terminal=terminal)
 
     @torch.no_grad()
     def compute_action(self, state):
         # Pre-process
         state = torch.from_numpy(state).float()
-        state = self.obs_normalizer.transform(state)
-        state = state.unsqueeze_(0).to(_DEVICE)
+        state = self.obs_normalizer.transform(state).unsqueeze_(0).to(_DEVICE)
 
         # Compute action (using appropriate net)
         if self._train_mode and self.perturbed_actor is not None:
@@ -218,13 +205,9 @@ class DDPG(core.Agent):
 
         return self._to_action_space(action)
 
-    def train(self):
-        """Trains the agent using the transitions stored during exploration.
-        """
-        assert self._train_mode
-        self._train()
-        self._update_target_networks()
-        self.train_steps += 1
+    def train(self, steps, progress=False):
+        if len(self.replay_buffer) >= self.batch_size:
+            super(DDPG, self).train(steps, progress)
 
     def _train(self):
         (state, action, next_state,
@@ -250,8 +233,8 @@ class DDPG(core.Agent):
 
         self._summary.add_scalars("Q", {"Critic": current_q.detach().mean(),
                                         "Target": target_q.mean()},
-                                  self.train_steps)
-        self._summary.add_scalar("Loss/Critic", loss_q, self.train_steps)
+                                  self._train_steps)
+        self._summary.add_scalar("Loss/Critic", loss_q, self._train_steps)
 
         # Optimize actor
         actor_out = self.actor(state)
@@ -260,7 +243,10 @@ class DDPG(core.Agent):
         self.actor_optimizer.zero_grad()
         loss_a.backward()
         self.actor_optimizer.step()
-        self._summary.add_scalar("Loss/Actor", loss_a, self.train_steps)
+        self._summary.add_scalar("Loss/Actor", loss_a, self._train_steps)
+
+        # Update Target Networks
+        self._update_target_networks()
 
     def _update_target_networks(self):
         for target_param, param in zip(self.target_actor.parameters(),
@@ -291,6 +277,118 @@ class DDPG(core.Agent):
             return distance
         return None
 
+    # Agent State
+    ########################
+
+    def state_dict(self):
+        state = {"critic": self.critic.state_dict(),
+                 "actor": self.actor.state_dict(),
+                 "obs_normalizer": self.obs_normalizer.state_dict(),
+                 "train_steps": self._train_steps}
+
+        return state
+
+    def load_state_dict(self, state):
+        self.critic.load_state_dict(state['critic'])
+        self.target_critic.load_state_dict(state['critic'])
+        self.actor.load_state_dict(state["actor"])
+        self.target_actor.load_state_dict(state["actor"])
+
+        self.obs_normalizer.load_state_dict(state["obs_normalizer"])
+
+        self._train_steps = state["train_steps"]
+
+    def aggregate_state_dicts(self, states):
+        critic_state = dicts_mean([x['critic'] for x in states])
+        self.critic.load_state_dict(critic_state)
+        self.target_critic.load_state_dict(critic_state)
+
+        actor_state = dicts_mean([x['actor'] for x in states])
+        self.actor.load_state_dict(actor_state)
+        self.target_actor.load_state_dict(actor_state)
+
+        self.obs_normalizer.load_state_dict([x['obs_normalizer']
+                                             for x in states])
+
+        self._train_steps = max(x["train_steps"] for x in states)
+
+    # Save/Load Agent
+    ########################
+
+    def save(self, path, replay_buffer=True):
+        try:
+            os.makedirs(path)
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
+
+        args = collections.OrderedDict([
+            ('observation_space', self.observation_space),
+            ('action_space', self.action_space),
+            ('gamma', self.gamma),
+            ('tau', self.tau),
+            ('batch_size', self.batch_size),
+            ('reward_scale', self.reward_scale),
+            ('replay_buffer_size', self.replay_buffer.max_size),
+            ('actor_cls', type(self.actor)),
+            ('actor_kwargs', self._actor_kwargs),
+            ('actor_lr', self._actor_lr),
+            ('critic_cls', type(self.critic)),
+            ('critic_kwargs', self._critic_kwargs),
+            ('critic_lr', self._critic_lr),
+            ('observation_normalizer', self._obs_normalizer_arg),
+            ('observation_clip', self.obs_normalizer.clip_range),
+            ('action_noise', self._action_noise_arg),
+            ('parameter_noise', self.parameter_noise_arg)
+        ])
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+
+        state = self.state_dict()
+        pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
+
+        if replay_buffer:
+            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+
+        if self.param_noise:
+            pickle.dump(self.param_noise,
+                        open(os.path.join(path, "param_noise.pickle"), "wb"))
+
+    @classmethod
+    def load(cls, path, replay_buffer=True, **kwargs):
+        if not os.path.isdir(path):
+            raise ValueError("{} is not a directory".format(path))
+
+        # Load and Override arguments used to build the instance
+        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+            _LOG.debug("(DDPG) Loading agent arguments")
+            args_values = pickle.load(fh)
+            args_values.update(kwargs)
+
+            fmt_string = "    {{:>{}}}: {{}}".format(
+                max(len(x) for x in args_values.keys()))
+            for key, value in args_values.items():
+                _LOG.debug(fmt_string.format(key, value))
+
+        # Create instance and load the rest of the data
+        instance = cls(**args_values)
+
+        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+            _LOG.debug("(DDPG) Loading agent state")
+            state = pickle.load(fh)
+            instance.load_state_dict(state)
+
+        replay_buffer_path = os.path.join(path, "replay_buffer.h5")
+        if replay_buffer and os.path.isfile(replay_buffer_path):
+            _LOG.debug("(DDPG) Loading replay buffer")
+            instance.replay_buffer.load(replay_buffer_path)
+
+        if instance.param_noise:
+            _LOG.debug("(DDPG) Loading parameter noise")
+            instance.param_noise = pickle.load(
+                open(os.path.join(path, "param_noise.pickle"), "rb"))
+
+        return instance
+
     # Utilities
     ########################
 
@@ -308,114 +406,8 @@ class DDPG(core.Agent):
                            min_out=self.action_space.low,
                            max_out=self.action_space.high)
 
-    # Get/Set/Update State
-    ########################
 
-    # Save/Load Agent
-    ########################
-
-    def save(self, path, replay_buffer=True):
-        try:
-            os.makedirs(path)
-        except OSError as err:
-            if err.errno != errno.EEXIST:
-                raise
-
-        args = {
-            'observation_space': self.observation_space,
-            'action_space': self.action_space,
-            'gamma': self.gamma,
-            'tau': self.tau,
-            'batch_size': self.batch_size,
-            'reward_scale': self.reward_scale,
-            'replay_buffer_size': self.replay_buffer.max_size,
-            'actor_cls': type(self.actor),
-            'actor_kwargs': self._actor_kwargs,
-            'actor_lr': self._actor_lr,
-            'critic_cls': type(self.critic),
-            'critic_kwargs': self._critic_kwargs,
-            'critic_lr': self._critic_lr,
-            'observation_normalizer': self._obs_normalizer,
-            'observation_clip': self.obs_normalizer.clip_range,
-            'action_noise': self._action_noise_arg,
-            'parameter_noise': self.parameter_noise_arg
-        }
-
-        state = {
-            'total_steps': self.total_steps,
-            'num_episodes': self.num_episodes
-        }
-
-        pickle.dump(args, open(os.path.join(path, "args.pickle"), 'wb'))
-        pickle.dump(state, open(os.path.join(path, "state.pickle"), 'wb'))
-
-        torch.save(self.critic.state_dict(),
-                   os.path.join(path, 'critic.torch'))
-        torch.save(self.actor.state_dict(),
-                   os.path.join(path, 'actor.torch'))
-
-        if replay_buffer:
-            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
-
-        self.obs_normalizer.save(os.path.join(path, 'obs_normalizer'))
-
-        if self.param_noise:
-            pickle.dump(self.param_noise,
-                        open(os.path.join(path, "param_noise.pickle"), "wb"))
-
-    @classmethod
-    def load(cls, path, replay_buffer=True, **kwargs):
-        if not os.path.isdir(path):
-            raise ValueError("{} is not a directory".format(path))
-
-        # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pickle"), "rb") as fh:
-            _LOG.debug("(DDPG) Loading agent arguments")
-            args_values = pickle.load(fh)
-            args_values.update(kwargs)
-
-            fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys()))
-            for key, value in args_values.items():
-                _LOG.debug(fmt_string.format(key, value))
-
-        # Create instance and load the rest of the data
-        instance = cls(**args_values)
-
-        with open(os.path.join(path, "state.pickle"), "rb") as fh:
-            _LOG.debug("(DDPG) Loading agent state")
-            state = pickle.load(fh)
-            instance.total_steps = state['total_steps']
-            instance.num_episodes = state['num_episodes']
-
-        _LOG.debug("(DDPG) Loading actor")
-        actor_state = torch.load(os.path.join(path, "actor.torch"))
-        instance.actor.load_state_dict(actor_state)
-        instance.target_actor.load_state_dict(actor_state)
-        _LOG.debug("(DDPG) Loading critic")
-        critic_state = torch.load(os.path.join(path, "critic.torch"))
-        instance.critic.load_state_dict(critic_state)
-        instance.target_critic.load_state_dict(critic_state)
-
-        replay_buffer_path = os.path.join(path, "replay_buffer.h5")
-        if replay_buffer and os.path.isfile(replay_buffer_path):
-            _LOG.debug("(DDPG) Loading replay buffer")
-            instance.replay_buffer.load(replay_buffer_path)
-
-        _LOG.debug("(DDPG) Loading observations normalizer")
-        # TODO: Take a look
-        instance.obs_normalizer = instance.obs_normalizer.load(
-                os.path.join(path, 'obs_normalizer'))
-
-        if instance.param_noise:
-            _LOG.debug("(DDPG) Loading parameter noise")
-            instance.param_noise = pickle.load(
-                open(os.path.join(path, "param_noise.pickle"), "rb"))
-
-        return instance
-
-
-# Utilities
+#
 ###############################################################################
 
 def _build_ac(observation_space, action_space, actor_cls, actor_kwargs,

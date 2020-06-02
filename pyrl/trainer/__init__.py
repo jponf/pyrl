@@ -1,3 +1,3 @@
 # -*- coding: utf-8 -*-
 
-from .her_trainer import HerAgentTrainer
+from .trainer import AgentTrainer
