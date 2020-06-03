@@ -93,7 +93,7 @@ def cli_her_ddpg_train(environment,
     trainer.env.seed(seed)
 
     if load:
-        _LOG.info("Save path already exists, loading previously trained agent")
+        _LOG.info("Loading previously trained agent")
         trainer.initialize_agent(agent_path=load, demo_path=demo_path)
     else:
         _LOG.info("Initializing new agent")

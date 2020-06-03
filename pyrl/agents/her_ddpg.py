@@ -124,7 +124,7 @@ class HerDDPG(HerAgent):
             expressed as name_std, i.e., ou_0.2 or normal_0.1. Use "none" to
             disable the use of action nois
         """
-        super().__init__(env)
+        super(HerDDPG, self).__init__(env)
         self.eps_greedy = eps_greedy
         self.gamma = gamma
         self.tau = tau
