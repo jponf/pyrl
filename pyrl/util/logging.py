@@ -20,6 +20,8 @@ LEVELS = collections.OrderedDict([("NOTSET", 0), ("DEBUG", 10),
                                   ("INFO", 20), ("WARNING", 30),
                                   ("ERROR", 40), ("CRITICAL", 50)])
 
+LOGGER_NAME = "PyRL"
+
 
 ###############################################################################
 
@@ -32,7 +34,7 @@ def get_logger():
     :return: The pydgga package logger instance.
     :rtype: logging.Logger.
     """
-    return logging.getLogger("RobotRL")
+    return logging.getLogger(LOGGER_NAME)
 
 
 def set_up_logger(level):
@@ -47,7 +49,7 @@ def set_up_logger(level):
         of the levels defined in the standard Python's logging module.
     """
     date_fmt = "%d-%m-%Y %H:%M:%S"
-    msg_fmt = '[%(asctime)s - %(levelname)s] %(message)s'
+    msg_fmt = "[%(asctime)s - " + LOGGER_NAME + " - %(levelname)s] %(message)s"
     formatter = logging.Formatter(fmt=msg_fmt, datefmt=date_fmt)
 
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
