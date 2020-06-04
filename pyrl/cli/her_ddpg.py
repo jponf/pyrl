@@ -133,9 +133,8 @@ def cli_her_ddpg_train(environment,
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
-    with trainer:
-        _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
-                   save)
+    _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
+               save)
 
     sys.exit(0)
 
