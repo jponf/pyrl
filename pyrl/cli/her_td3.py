@@ -143,9 +143,8 @@ def cli_her_td3_train(environment,
     if render:                # Some environments must be rendered
         trainer.env.render()  # before running
 
-    with trainer:
-        _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
-                   save)
+    _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
+               save)
 
     sys.exit(0)
 
