@@ -221,7 +221,7 @@ class HerDDPG(HerAgent):
         _LOG.debug("(HER-DDPG)     = Num. Episodes: %d", buffer.num_episodes)
         _LOG.debug("(HER-DDPG)     = Num. Steps: %d", buffer.count_steps())
 
-        if buffer.count_steps() < self.demo_batch_size:
+        if buffer.count_steps() < self._demo_batch_size:
             raise ValueError("demonstrations replay buffer has less than"
                              " `demo_batch_size` steps")
 
@@ -325,7 +325,7 @@ class HerDDPG(HerAgent):
 
             self._summary.add_scalars("Loss", {"Actor_PRM": prm_loss,
                                                "Actor_AUX": aux_loss},
-                                      self.train_steps)
+                                      self._train_steps)
 
         self.actor_optimizer.zero_grad()
         pi_loss.backward()
@@ -339,7 +339,7 @@ class HerDDPG(HerAgent):
             return self.env.compute_reward(achieved_goals, goals, None)
 
         has_demo = (self._demo_replay_buffer is not None and
-                    self.demo_batch_size > 0)
+                    self._demo_batch_size > 0)
         demo_batch_size = has_demo * self._demo_batch_size
 
         batch = self.replay_buffer.sample_batch_torch(

@@ -185,7 +185,7 @@ class HerAgent(BaseAgent):
     """Generic Hindsight Experience Replay Agent interface."""
 
     def __init__(self, env, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super(HerAgent, self).__init__(*args, **kwargs)
         if not pyrl.util.ugym.is_her_env(env):
             raise ValueError("{} is not a valid HER environment".format(env))
 

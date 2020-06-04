@@ -1,5 +1,8 @@
 # Custom excluded directories/files
 temp/
+checkpoints/
+*.npz
+*.h5
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -134,8 +137,3 @@ dmypy.json
 # VSCode
 .vscode/
 *.code-workspace
-
-# Project specific
-checkpoints/
-*.npz
-*.h5
