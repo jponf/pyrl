@@ -246,7 +246,7 @@ class HerTD3(HerAgent):
         _LOG.debug("(HER-TD3)     = Num. Episodes: %d", buffer.num_episodes)
         _LOG.debug("(HER-TD3)     = Num. Steps: %d", buffer.count_steps())
 
-        if buffer.count_steps() < self.demo_batch_size:
+        if buffer.count_steps() < self._demo_batch_size:
             raise ValueError("demonstrations replay buffer has less than"
                              " `demo_batch_size` steps")
 
@@ -388,7 +388,7 @@ class HerTD3(HerAgent):
             return self.env.compute_reward(achieved_goals, goals, None)
 
         has_demo = (self._demo_replay_buffer is not None and
-                    self.demo_batch_size > 0)
+                    self._demo_batch_size > 0)
         demo_batch_size = has_demo * self._demo_batch_size
 
         batch = self.replay_buffer.sample_batch_torch(
