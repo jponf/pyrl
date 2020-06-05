@@ -181,38 +181,44 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
-@click.option("--num-steps", type=int, default=20)
 @click.option("--pause/--no-pause", default=False,
               help="Pause (or not) before running an episode.")
-@click.option("--seed", type=int, default=1234)
-def cli_her_ddpg_test(environment, agent_path, num_episodes, num_steps,
-                      pause, seed):
-    _LOG.info("Loading %s", environment)
-    env = gym.make(environment).unwrapped
-    pyrl.cli.util.initialize_seed(seed, env)
+@click.option("--seed", type=int, default=int(time.time()))
+def cli_her_ddpg_test(environment, agent_path, num_episodes, pause, seed):
+    """Runs a previosly trained HER+TD3 agent on a gym environment."""
+    _LOG.info("Loading '%s'", environment)
+    env = gym.make(environment)
+    pyrl.cli.util.initialize_seed(seed)
+    env.seed(seed)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = pyrl.agents.her_ddpg.HERDDPG.load(
-        agent_path, env=env, replay_buffer=False)
+    agent = pyrl.agents.HerDDPG.load(agent_path, env,
+                                     replay_buffer=False)
     agent.set_eval_mode()
 
-    _LOG.info("Action space size: %s", str(env.action_space))
-    _LOG.info("Observation space size: %s", str(env.observation_space))
+    _LOG.info("Agent trained for %d stes", agent.num_train_steps)
+    _LOG.info("Action space size: %s", str(agent.env.action_space))
+    _LOG.info("Observation space size: %s", str(agent.env.observation_space))
 
     all_rewards = []
+    all_success = []
     for episode in six.moves.range(num_episodes):
         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
         if pause:
             input("Press enter to start episode")
-        rewards, success = _evaluate(agent, env, 1, num_steps, render=True)
+        rewards, success = _evaluate(agent, 1, render=True)
         all_rewards.extend(rewards)
+        all_success.extend(success)
     env.close()
 
     sum_score = sum(x.sum() for x in all_rewards)
+    sum_success = sum(all_success)
     _LOG.info("Avg sum score: %.5f", sum_score / len(all_rewards))
-    _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
+    # _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
+    _LOG.info("Success %d of %d (%.2f)",
+              sum_success, num_episodes, sum_success / num_episodes)
 
-    return 0
+    sys.exit(0)
 
 
 ###############################################################################
