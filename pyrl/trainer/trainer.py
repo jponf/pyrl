@@ -1,12 +1,11 @@
 # -*- encoding: utf-8 -*-
 
+import enum
 import importlib
-import multiprocessing as mp
+import multiprocessing
 import os
 import random
-import tempfile
-
-import dask.distributed
+import sys
 
 # OpenAI's Gym
 import gym
@@ -22,7 +21,21 @@ import pyrl.util.ugym
 
 ###############################################################################
 
+if (sys.version_info.major, sys.version_info.minor) < (3, 4):
+    raise ImportError("This module requires Python >= 3.4")
+
+
 _LOG = pyrl.util.logging.get_logger()
+
+mp = multiprocessing.get_context("spawn")
+
+
+###############################################################################
+
+class _Message(enum.Enum):
+    RUN = 0
+    EXIT = 1
+    SYNC = 2
 
 
 ###############################################################################
@@ -31,8 +44,6 @@ class AgentTrainer(object):
 
     def __init__(self, agent_cls, env_name, num_envs,
                  root_log_dir, num_cpus=1, seed=None):
-        super(AgentTrainer, self).__init__()
-
         if num_cpus < 1:
             num_cpus = mp.cpu_count()
         if seed is None:
@@ -48,20 +59,21 @@ class AgentTrainer(object):
         self.env = _initialize_env(self._env_name, self._agent_cls)
         self.agent = None
 
-        self._workers = []
+        self._trainers = []
 
-        tempdir = tempfile.mkdtemp(prefix="pyrl-dask-")
-        with dask.config.set({"distributed.worker.daemon": True,
-                              "temporary-directory": tempdir}):
-            self.cluster = dask.distributed.LocalCluster(n_workers=num_cpus)
-            self.client = dask.distributed.Client(self.cluster)
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
 
     def initialize_agent(self, agent_kwargs=None, agent_path="",
                          demo_path=""):
-        self.agent, _ = _initialize_agent(self._agent_cls, self.env,
-                                          agent_kwargs=agent_kwargs,
-                                          agent_path=agent_path,
-                                          demo_path=demo_path)
+        self.agent = _initialize_agent(self._agent_cls, self.env,
+                                       agent_kwargs=agent_kwargs,
+                                       agent_path=agent_path,
+                                       demo_path=demo_path)
 
         num_threads = 0  # let the libraries decide
         if self._num_cpus > 1:
@@ -71,52 +83,108 @@ class AgentTrainer(object):
         env_module = self.env.spec.entry_point.split(":")[0]
         for i in range(self._num_envs):
             log_dir = os.path.join(self._root_log_dir, "env{}".format(i))
-            future = self.client.submit(Trainer,
-                                        # Submit as actor
-                                        actor=True,
-                                        workers=[i % self._num_cpus],
-                                        # Trainer kwargs
-                                        agent_cls=self._agent_cls,
-                                        env_name=self._env_name,
-                                        env_module=env_module,
-                                        seed=self._seed + i,
-                                        num_threads=num_threads,
-                                        agent_log_dir=log_dir,
-                                        agent_kwargs=agent_kwargs,
-                                        agent_path=agent_path,
-                                        demo_path=demo_path)
-            self._workers.append(future.result())
+            self._trainers.append(
+                Trainer(
+                    trainer_id=i, agent_cls=self._agent_cls,
+                    env_name=self._env_name, env_module=env_module,
+                    seed=self._seed + i, num_threads=num_threads,
+                    agent_log_dir=log_dir, agent_kwargs=agent_kwargs,
+                    agent_path=agent_path, demo_path=demo_path)
+            )
+
+    def start(self):
+        if not self._trainers:
+            raise RuntimeError("agent not initialized")
+
+        for i, worker in enumerate(self._trainers):
+            _LOG.debug("Starting trainer %d", i)
+            worker.start()
+
+    def shutdown(self):
+        """Signals trainers to terminate."""
+        _LOG.debug("Shutting down")
+        for i, trainer in enumerate(self._trainers):
+            _LOG.debug("Sending EXIT to trainer %d", i)
+            trainer.parent_pipe.send((_Message.EXIT, None))
+
+        for i, trainer in enumerate(self._trainers):
+            _LOG.debug("Joining trainer %d", i)
+            trainer.join()
 
     def run(self, num_episodes, train_steps):
-        if not self._workers:
+        if not self._trainers:
             raise RuntimeError("there are no workers")
-        self.client.cancel(self._workers[0])
-        _LOG.info("Synchronizing agents")
-        sync_futures = [x.synchronize_agent(self.agent.state_dict())
-                        for x in self._workers]
-        for x in sync_futures:
-            x.result()
+        if not all(x.is_alive() for x in self._trainers):
+            raise RuntimeError("some workers are not running, did you call"
+                               " start?")
 
-        _LOG.info("Running agents")
-        run_futures = [x.run_episodes(num_episodes, train_steps)
-                       for x in self._workers]
-        state_dicts = [x.result() for x in run_futures]
+        self._synchronize_agents()
+        self._run(num_episodes, train_steps)
 
-        self.agent.aggregate_state_dicts(state_dicts)
+    def _synchronize_agents(self):
+        """Synchronizes the workers with the master updates."""
+        _LOG.debug("Synchronizing agents")
+        self._call_msg(_Message.SYNC, self.agent.state_dict())
+        _LOG.debug("Agents synchronized")
+
+    def _run(self, num_episodes, train_steps):
+        agent_states = []
+        done = [False] * len(self._trainers)
+
+        while not all(done):
+            # Execute pending workers (up to num_cpus)
+            to_run = []
+
+            for i, trainer in enumerate(self._trainers):
+                if not done[i]:
+                    to_run.append(trainer)
+                if len(to_run) >= self._num_cpus:
+                    break
+
+            _LOG.debug("Running trainers: %s",
+                       ", ".join(str(x.trainer_id) for x in to_run))
+            states = self._call_msg(_Message.RUN, (num_episodes, train_steps),
+                                    to_run)
+            agent_states.extend(states)
+
+            for x in to_run:
+                done[x.trainer_id] = True
+
+        _LOG.debug("Updating master agent")
+        if len(agent_states) > 1:
+            self.agent.aggregate_state_dicts(agent_states)
+        else:
+            self.agent.load_state_dict(agent_states[0])
+
+    def _call_msg(self, msg, data, trainers=None):
+        if trainers is None:
+            trainers = self._trainers
+
+        results = []
+        for trainer in trainers:
+            trainer.parent_pipe.send((msg, data))
+
+        for trainer in trainers:
+            ret, err = trainer.parent_pipe.recv()
+            if err:
+                raise err
+            results.append(ret)
+
+        return results
 
 
 ###############################################################################
 
-class Trainer(object):
+class Trainer(mp.Process):
 
-    def __init__(self, agent_cls, env_name, env_module, seed, num_threads,
-                 agent_log_dir, agent_kwargs=None, agent_path="",
+    def __init__(self, trainer_id, agent_cls, env_name, env_module, seed,
+                 num_threads, agent_log_dir, agent_kwargs=None, agent_path="",
                  demo_path=""):
-        super(Trainer, self).__init__()
-        importlib.import_module(env_module)
-
+        super().__init__()
+        self.trainer_id = trainer_id
         self.agent_cls = agent_cls
         self.env_name = env_name
+        self.env_module = env_module
         self.seed = seed
         self.num_threads = num_threads
 
@@ -125,52 +193,85 @@ class Trainer(object):
         self.agent_log_dir = agent_log_dir
         self.demo_path = demo_path
 
+        self.parent_pipe, self.child_pipe = mp.Pipe(duplex=True)
+
+    def run(self):
+        # Configure worker
+        importlib.import_module(self.env_module)
         if self.num_threads > 0:
             torch.set_num_threads(self.num_threads)
 
-        self.agent, self.env = _initialize_agent(
-            self.agent_cls, self.env_name,
-            agent_kwargs=self.agent_kwargs,
-            agent_path=self.agent_path,
-            demo_path=self.demo_path)
+        # Initialize environment and agent
+        env = _initialize_env(self.env_name, self.agent_cls)
+        agent = _initialize_agent(self.agent_cls, env,
+                                  agent_kwargs=self.agent_kwargs,
+                                  agent_path=self.agent_path,
+                                  demo_path=self.demo_path)
 
-        self.env.seed(self.seed)
-        self.agent.set_train_mode()
-        self.agent.init_summary_writter(self.agent_log_dir)
+        env.seed(self.seed)
+        agent.set_train_mode()
+        agent.init_summary_writter(self.agent_log_dir)
 
-    def synchronize_agent(self, agent_state):
-        self.agent.load_state_dict(agent_state)
+        # Run loop
+        self._run_loop(agent, env)
 
-    def run_episodes(self, num_episodes, train_steps):
+        # Clean up
+        env.close()
+        del env
+        del agent
+
+    def _run_loop(self, agent, env):
+        try:
+            while True:
+                msg, data = self.child_pipe.recv()
+                ret = None
+                error = None
+                try:
+                    if msg == _Message.RUN:
+                        ret = self._run(env, agent, *data)
+                    elif msg == _Message.SYNC:
+                        agent.load_state_dict(data)
+                    elif msg == _Message.EXIT:
+                        break
+                    else:
+                        raise RuntimeError("unknown message {}".format(msg))
+                except Exception as err:
+                    error = err
+
+                self.child_pipe.send((ret, error))
+        except KeyboardInterrupt:
+            pass
+
+    def _run(self, env, agent, num_episodes, train_steps):
         total_steps = 0
 
         for _ in range(num_episodes):
-            state = self.env.reset()
-            self.agent.begin_episode()
+            state = env.reset()
+            agent.begin_episode()
 
-            for _ in range(self.env.spec.max_episode_steps):
-                action = self.agent.compute_action(state)
-                next_state, reward, done, info = self.env.step(action)
-                self.agent.update(
-                    state=state,
-                    action=action,
-                    reward=reward,
-                    next_state=next_state,
-                    terminal=done or info.get("is_success", False))
+            for _ in range(env.spec.max_episode_steps):
+                action = agent.compute_action(state)
+                next_state, reward, done, info = env.step(action)
+                agent.update(state=state,
+                             action=action,
+                             reward=reward,
+                             next_state=next_state,
+                             terminal=done or info.get("is_success", False))
                 state = next_state
 
                 total_steps += 1
+
                 # Episode finished before exhausting the # of steps
                 if done:
                     break
 
-            self.agent.end_episode()
+            agent.end_episode()
 
-        if train_steps == 0:
+        if train_steps == 0:  # One training step for each time step
             train_steps = total_steps
 
-        self.agent.train(train_steps)
-        return self.agent.state_dict()
+        agent.train(train_steps)
+        return agent.state_dict()
 
 
 ###############################################################################
@@ -190,14 +291,12 @@ def _initialize_env(env_or_name, agent_cls):
     return env
 
 
-def _initialize_agent(agent_cls, env_or_name,
+def _initialize_agent(agent_cls, env,
                       agent_kwargs=None, agent_path="",
                       demo_path=""):
     if agent_kwargs is None:
         agent_kwargs = {}
 
-    # Initialize environment
-    env = _initialize_env(env_or_name, agent_cls)
     if agent_kwargs and agent_path:
         raise ValueError("Only agent_kwargs or agent_path can be given"
                          " but not both")
@@ -222,4 +321,5 @@ def _initialize_agent(agent_cls, env_or_name,
 
     if agent is None:
         raise ValueError("Either agent_kwargs or agent_path must be given")
-    return agent, env
+
+    return agent
