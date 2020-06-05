@@ -228,7 +228,7 @@ def cli_her_td3_test(environment, agent_path, num_episodes, pause, seed):
     _LOG.info("Success %d of %d (%.2f)",
               sum_success, num_episodes, sum_success / num_episodes)
 
-    return 0
+    sys.exit(0)
 
 
 ###############################################################################
