@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
-
 # Standard library
 import math
 import os
@@ -133,8 +130,9 @@ def cli_her_ddpg_train(environment,
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
-    _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
-               save)
+    with trainer:
+        _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
+                   save)
 
     sys.exit(0)
 
