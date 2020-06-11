@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
-
 import collections
 import errno
 import os
-import six.moves.cPickle as pickle
-
-import six
+import pickle
 
 # Scipy
 import numpy as np
@@ -271,12 +266,12 @@ class TD3(Agent):
             self._update_target_networks()
 
     def _update_target_networks(self):
-        a_params = six.moves.zip(self.target_actor.parameters(),
-                                 self.actor.parameters())
-        c1_params = six.moves.zip(self.target_critic_1.parameters(),
-                                  self.critic_1.parameters())
-        c2_params = six.moves.zip(self.target_critic_2.parameters(),
-                                  self.critic_2.parameters())
+        a_params = zip(self.target_actor.parameters(),
+                       self.actor.parameters())
+        c1_params = zip(self.target_critic_1.parameters(),
+                        self.critic_1.parameters())
+        c2_params = zip(self.target_critic_2.parameters(),
+                        self.critic_2.parameters())
         for params in (a_params, c1_params, c2_params):
             for target_param, param in params:
                 target_param.data.mul_(1.0 - self.tau)
