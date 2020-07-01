@@ -3,24 +3,24 @@
 from __future__ import (absolute_import, print_function, division,
                         unicode_literals)
 
-import collections
-
-import six
-
 # SciPy
 import numpy as np
 
 # OpenAI
 import gym
 
-# Torch
+# PyTorch
 import torch
 import torch.nn as nn
+
+import pyrl.agents.models_utils as models_utils
 
 
 ###############################################################################
 
 class CriticMLP(nn.Module):
+    """Critic implemented as a Multi-layer Perceptron."""
+
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False):
@@ -36,27 +36,33 @@ class CriticMLP(nn.Module):
                              ' dimension')
 
         input_size = observation_space.shape[0] + action_space.shape[0]
-        layers = []
-        for i in six.moves.range(0, hidden_layers + 1):  # input + hidden
-            layers.append(("linear{}".format(i),
-                           nn.Linear(hidden_size if i > 0 else input_size,
-                                     hidden_size)))
-            if layer_norm:
-                layers.append(("norm{}".format(i),
-                               nn.LayerNorm(hidden_size)))
-            layers.append(("{}{}".format(activation, i),
-                           get_activation_layer(activation)))
-
-        layers.append(("linear{}".format(i+1),
-                       nn.Linear(hidden_size, 1)))
-
-        self.network = nn.Sequential(collections.OrderedDict(layers))
+        hidden_layers_size = [hidden_size] * hidden_layers
+        self.network = models_utils.create_mlp(
+            input_size=input_size,
+            output_size=1,
+            hidden_layers=hidden_layers_size,
+            layer_norm=layer_norm,
+            activation=activation,
+            last_activation=None)
 
     def forward(self, states, actions):
         return self.network(torch.cat((states, actions), dim=1))
 
 
+class TwinnedCritic(nn.Module):
+    """Wrapper module to encapsulate two critic networks."""
+
+    def __init__(self, critic1, critic2):
+        super(TwinnedCritic, self).__init__()
+        self.c1 = critic1
+        self.c2 = critic2
+
+    def forward(self, states, actions):
+        return self.c1(states, actions), self.c2(states, actions)
+
+
 class ActorMLP(nn.Module):
+    """Deterministic actor implemented as a Multi-layer Perceptron."""
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
@@ -75,6 +81,7 @@ class ActorMLP(nn.Module):
 
         input_size = observation_space.shape[0]
         output_size = action_space.shape[0]
+        hidden_layers_size = [hidden_size] * hidden_layers
 
         # action space for this actor
         self.action_space = gym.spaces.Box(
@@ -82,22 +89,13 @@ class ActorMLP(nn.Module):
             high=np.repeat(1.0, output_size).astype(np.float32, copy=False),
             dtype=np.float32)
 
-        layers = []
-        for i in six.moves.range(0, hidden_layers + 1):  # input + hidden
-            layers.append(("linear{}".format(i),
-                           nn.Linear(hidden_size if i > 0 else input_size,
-                                     hidden_size)))
-            if layer_norm:
-                layers.append(("norm{}".format(i),
-                               nn.LayerNorm(hidden_size)))
-            layers.append(("{}{}".format(activation, i),
-                           get_activation_layer(activation)))
-
-        layers.append(("linear{}".format(i+1),
-                       nn.Linear(hidden_size, output_size)))
-        layers.append(("tanh{}".format(i+1), nn.Tanh()))
-
-        self.network = nn.Sequential(collections.OrderedDict(layers))
+        self.network = models_utils.create_mlp(
+            input_size=input_size,
+            output_size=output_size,
+            hidden_layers=hidden_layers_size,
+            layer_norm=layer_norm,
+            activation=activation,
+            last_activation="tanh")
 
     def forward(self, states):
         return self.network(states)
@@ -105,6 +103,75 @@ class ActorMLP(nn.Module):
     def get_perturbable_parameters(self):
         return [x for x, _ in self.named_parameters()
                 if 'norm' not in x]
+
+
+class GaussianActorMLP(nn.Module):
+
+    def __init__(self, observation_space, action_space,
+                 hidden_layers=3, hidden_size=256,
+                 activation="relu", layer_norm=False,
+                 log_std_max=2, log_std_min=-20,
+                 epsilon=1e-6):
+        assert hidden_layers >= 0
+        assert hidden_size > 0
+        super(GaussianActorMLP, self).__init__()
+
+        if len(observation_space.shape) > 1:
+            raise ValueError('MLP observation space must have a single'
+                             ' dimension')
+        if len(action_space.shape) > 1:
+            raise ValueError('MLP action space must have a single'
+                             ' dimension')
+        if log_std_max < log_std_min:
+            raise ValueError("log_std_max must be <= than log_std_min")
+
+        input_size = observation_space.shape[0]
+        output_size = action_space.shape[0]
+        hidden_layers_size = [hidden_size] * hidden_layers
+
+        # action space for this actor
+        self.action_space = gym.spaces.Box(
+            low=np.repeat(-1.0, output_size).astype(np.float32, copy=False),
+            high=np.repeat(1.0, output_size).astype(np.float32, copy=False),
+            dtype=np.float32)
+
+        self.network = models_utils.create_mlp(
+            input_size=input_size,
+            output_size=output_size * 2,
+            hidden_layers=hidden_layers_size,
+            layer_norm=layer_norm,
+            activation=activation,
+            last_activation=None)
+
+        self.log_std_max = log_std_max
+        self.log_std_min = log_std_min
+        self.epsilon = epsilon
+
+    def forward(self, states):
+        mean, log_std = torch.chunk(self.network(states), 2, dim=-1)
+        log_std.clamp_(min=self.log_std_min, max=self.log_std_max)
+        return mean, log_std
+
+    def sample(self, states):
+        """Sample elements from Gaussian distribution of (mean, std).
+
+        :returns: A tuple with actions sampled form a normal distribution,
+            their associated entropies and the actions equivalent to the
+            means of the normal distribution.
+        """
+        means, log_stds = self(states)
+        stds = log_stds.exp()
+        normal = torch.distributions.Normal(means, stds)
+
+        r_sample = normal.rsample()  # reparameterization trick
+        rand_actions = torch.tanh(r_sample)
+
+        # likelihood of the bounded actions (by tanh)
+        log_prob = normal.log_prob(r_sample)
+        log_prob -= torch.log(1 - rand_actions.pow(2) + self.epsilon)
+        log_prob = log_prob.sum(dim=1, keepdim=True)
+
+        return rand_actions, log_prob, torch.tanh(means)
 
 
 ###############################################################################
@@ -176,27 +243,3 @@ class HerActorMLP(ActorMLP):
     def forward(self, obs, goals):
         return super(HerActorMLP, self).forward(
             states=torch.cat((obs, goals), dim=1))
-
-
-###############################################################################
-
-_ACTIVATIONS = {
-    "leakyrelu": torch.nn.LeakyReLU,
-    "relu": torch.nn.ReLU,
-    "sigmoid": torch.nn.Sigmoid,
-    "tanh": torch.nn.Tanh
-}
-
-
-def get_activation_layer(name):
-    """Get an activation layer given its name.
-
-    :param name: Name of the activation layer, valid values are: leakyrelu,
-        relu, sigmoid and tanh.
-    """
-    try:
-        return _ACTIVATIONS[name]()
-    except KeyError:
-        msg = "invalid layer '{}', valid options are: {}"
-        raise ValueError(
-            msg.format(name, ", ".join(sorted(_ACTIVATIONS.keys()))))

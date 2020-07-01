@@ -24,6 +24,7 @@ import pyrl.util.umath as umath
 import pyrl.util.ugym
 
 from .core import HerAgent
+from .models_utils import soft_update
 from .noise import NormalActionNoise
 from .replay_buffer import HerReplayBuffer
 from .utils import (create_action_noise, create_normalizer,
@@ -358,13 +359,19 @@ class HerTD3(HerAgent):
         if ((self._train_steps + 1) % self.policy_delay) == 0:
             actor_out = self.actor(obs, goal)
             actor_q1 = self.critic_1(obs, goal, actor_out)
+            actor_q2 = self.critic_2(obs, goal, actor_out)
+            actor_q_min = torch.min(actor_q1, actor_q2)
 
-            pi_loss = -actor_q1.mean()
+            pi_loss = -actor_q_min.mean()
             pi_loss += self._action_penalty * actor_out.pow(2).mean()
             if demo_mask.any():
                 cloning_loss = (actor_out[demo_mask] - action[demo_mask])
                 if self._q_filter:  # where is the demonstation action better?
-                    q_mask = current_q1[demo_mask] > actor_q1[demo_mask]
+                    current_q1 = self.critic_1(obs, goal, action)
+                    current_q2 = self.critic_2(obs, goal, action)
+                    current_q_min = torch.min(current_q1, current_q2)
+
+                    q_mask = current_q_min[demo_mask] > actor_q_min[demo_mask]
                     q_mask = q_mask.flatten()
                     cloning_loss = cloning_loss[q_mask]
 
@@ -407,16 +414,9 @@ class HerTD3(HerAgent):
         return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
 
     def _update_target_networks(self):
-        a_params = six.moves.zip(self.target_actor.parameters(),
-                                 self.actor.parameters())
-        c1_params = six.moves.zip(self.target_critic_1.parameters(),
-                                  self.critic_1.parameters())
-        c2_params = six.moves.zip(self.target_critic_2.parameters(),
-                                  self.critic_2.parameters())
-        for params in (a_params, c1_params, c2_params):
-            for target_param, param in params:
-                target_param.data.mul_(1.0 - self.tau)
-                target_param.data.add_(param.data * self.tau)
+        soft_update(self.actor, self.target_actor, self.tau)
+        soft_update(self.critic_1, self.target_critic_1, self.tau)
+        soft_update(self.critic_2, self.target_critic_2, self.tau)
 
     # Utilities
     ########################

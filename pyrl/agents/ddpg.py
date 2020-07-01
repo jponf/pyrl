@@ -6,9 +6,7 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-import six.moves.cPickle as pickle
-
-import six
+import pickle
 
 # Scipy
 import numpy as np
@@ -23,6 +21,7 @@ import pyrl.util.logging
 import pyrl.util.umath as umath
 
 from .core import Agent
+from .models_utils import soft_update
 from .noise import AdaptiveParamNoiseSpec
 from .replay_buffer import FlatReplayBuffer
 from .utils import (create_action_noise, create_normalizer,
@@ -251,15 +250,8 @@ class DDPG(Agent):
         self._update_target_networks()
 
     def _update_target_networks(self):
-        a_params = six.moves.zip(self.target_actor.parameters(),
-                                 self.actor.parameters())
-        c_params = six.moves.zip(self.target_critic.parameters(),
-                                 self.critic.parameters())
-
-        for params in (a_params, c_params):
-            for target_param, param in params:
-                target_param.data.mul_(1.0 - self.tau)
-                target_param.data.add_(param.data * self.tau)
+        soft_update(self.actor, self.target_actor, self.tau)
+        soft_update(self.critic, self.target_critic, self.tau)
 
     @torch.no_grad()
     def adapt_parameter_noise(self):
