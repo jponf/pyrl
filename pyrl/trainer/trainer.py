@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import random
 import sys
+import traceback
 
 # OpenAI's Gym
 import gym
@@ -167,7 +168,9 @@ class AgentTrainer(object):
         for trainer in trainers:
             ret, err = trainer.parent_pipe.recv()
             if err:
-                raise err
+                exc, trace = err
+                print(trace, file=sys.stderr)
+                raise exc
             results.append(ret)
 
         return results
@@ -236,7 +239,8 @@ class Trainer(mp.Process):
                     else:
                         raise RuntimeError("unknown message {}".format(msg))
                 except Exception as err:
-                    error = err
+                    trace = traceback.format_exc()
+                    error = (err, trace)
 
                 self.child_pipe.send((ret, error))
         except KeyboardInterrupt:
