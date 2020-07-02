@@ -6,9 +6,7 @@ from __future__ import (absolute_import, print_function, division,
 import collections
 import errno
 import os
-import six.moves.cPickle as pickle
-
-import six
+import pickle
 
 # Scipy
 import numpy as np
@@ -23,6 +21,7 @@ import pyrl.util.logging
 import pyrl.util.umath as umath
 
 from .core import HerAgent
+from .models_utils import soft_update
 from .replay_buffer import HerReplayBuffer
 from .utils import (create_action_noise, create_normalizer,
                     create_actor, create_critic, dicts_mean)
@@ -198,12 +197,12 @@ class HerDDPG(HerAgent):
             action_shape=self.replay_buffer.action_shape,
             max_episodes=num_episodes, max_steps=self.replay_buffer.max_steps)
 
-        for obs, acs, info in six.moves.zip(d_obs, d_acs, d_info):
+        for obs, acs, info in zip(d_obs, d_acs, d_info):
             if len(acs) > buffer.max_steps:  # too many steps, ignore
                 continue
 
             states, next_states = obs[:-1], obs[1:]
-            transitions = six.moves.zip(states, acs, next_states, info)
+            transitions = zip(states, acs, next_states, info)
             for state, action, next_state, info in transitions:
                 reward = self.env.compute_reward(next_state["achieved_goal"],
                                                  next_state["desired_goal"],
@@ -351,22 +350,15 @@ class HerDDPG(HerAgent):
                 sample_size=demo_batch_size, replay_k=0,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
             batch = tuple(torch.cat((x, y), dim=0)
-                          for x, y in six.moves.zip(batch, demo_batch))
+                          for x, y in zip(batch, demo_batch))
 
         exp_mask = torch.zeros(self.batch_size, dtype=torch.bool)
         demo_mask = torch.ones(demo_batch_size, dtype=torch.bool)
         return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
 
     def _update_target_networks(self):
-        a_params = six.moves.zip(self.target_actor.parameters(),
-                                 self.actor.parameters())
-        c_params = six.moves.zip(self.target_critic.parameters(),
-                                 self.critic.parameters())
-
-        for params in (a_params, c_params):
-            for target_param, param in params:
-                target_param.data.mul_(1.0 - self.tau)
-                target_param.data.add_(param.data * self.tau)
+        soft_update(self.actor, self.target_actor, self.tau)
+        soft_update(self.critic, self.target_critic, self.tau)
 
     # Utilities
     ########################

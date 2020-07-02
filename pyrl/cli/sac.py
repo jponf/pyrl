@@ -30,7 +30,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
-@click.command(name="td3-train")
+@click.command(name="sac-train")
 @click.argument("environment", type=str)
 @click.option("--num-epochs", type=int, default=20)
 @click.option("--num-episodes", type=int, default=20)
@@ -42,11 +42,7 @@ _LOG = pyrl.util.logging.get_logger()
 @click.option("--batch-size", type=int, default=128)
 @click.option("--replay-buffer", type=int, default=1000000)
 @click.option("--reward-scale", type=float, default=1.0)
-@click.option("--policy-delay", type=int, default=2)
 @click.option("--random-steps", type=int, default=1500)
-@click.option("--action-noise", type=str, default="normal_0.2",
-              help="Action noise, it can be 'none' or name_std, for example:"
-                   " ou_0.2 or normal_0.1.")
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
               default="standard", help="If set to none, the observations "
                                        "won't be normalized")
@@ -55,9 +51,9 @@ _LOG = pyrl.util.logging.get_logger()
                    " being normalized.")
 @click.option("--render/--no-render", default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/td3")
+@click.option("--save", type=click.Path(), default="checkpoints/sac")
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_td3_train(environment,
+def cli_sac_train(environment,
                   num_epochs,
                   num_episodes,
                   num_envs,
@@ -68,16 +64,14 @@ def cli_td3_train(environment,
                   batch_size,
                   replay_buffer,
                   reward_scale,
-                  policy_delay,
                   random_steps,
-                  action_noise,
                   obs_normalizer,
                   obs_clip,
                   render,
                   load, save, seed):
     """Trains a TD3 agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.TD3, env_name=environment,
+        agent_cls=pyrl.agents.SAC, env_name=environment,
         seed=seed, num_envs=num_envs, num_cpus=num_cpus,
         root_log_dir=os.path.join(save, "log"))
     pyrl.cli.util.initialize_seed(seed)
@@ -94,13 +88,11 @@ def cli_td3_train(environment,
                               batch_size=batch_size,
                               reward_scale=reward_scale,
                               replay_buffer_size=replay_buffer,
-                              policy_delay=policy_delay,
                               random_steps=random_steps,
                               actor_lr=1e-3,
                               critic_lr=1e-3,
                               observation_normalizer=obs_normalizer,
-                              observation_clip=obs_clip,
-                              action_noise=action_noise)
+                              observation_clip=obs_clip)
         )
 
     _LOG.info("Agent Data")
@@ -159,14 +151,14 @@ def _run_train_epoch(trainer, epoch, num_episodes, save_path):
 
 ###############################################################################
 
-@click.command("td3-test")
+@click.command("sac-test")
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
 @click.option("--pause/--no-pause", default=False,
               help="Pause (or not) before running an episode.")
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_td3_test(environment, agent_path, num_episodes, pause, seed):
+def cli_sac_test(environment, agent_path, num_episodes, pause, seed):
     """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = pyrl.util.ugym.make_flat(environment)
@@ -174,7 +166,7 @@ def cli_td3_test(environment, agent_path, num_episodes, pause, seed):
     env.seed(seed)
 
     _LOG.info("Loading agent from %s", agent_path)
-    agent = pyrl.agents.TD3.load(agent_path, replay_buffer=False)
+    agent = pyrl.agents.SAC.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
     _LOG.info("Agent trained for %d stes", agent.num_train_steps)

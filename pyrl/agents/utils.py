@@ -8,7 +8,8 @@ import numpy as np
 
 # ...
 import pyrl.util.ugym
-from .models import ActorMLP, CriticMLP, HerActorMLP, HerCriticMLP
+from .models import (ActorMLP, GaussianActorMLP, CriticMLP,
+                     HerActorMLP, HerCriticMLP)
 from .noise import NullActionNoise, NormalActionNoise, OUActionNoise
 from .preprocessing import IdentityNormalizer, StandardNormalizer
 
@@ -84,7 +85,8 @@ def dicts_mean(dicts):
 
 
 def create_actor(observation_space, action_space,
-                 actor_cls=None, actor_kwargs=None):
+                 actor_cls=None, actor_kwargs=None,
+                 policy="deterministic"):
     is_her = pyrl.util.ugym.is_her_space(observation_space)
     if actor_kwargs is None:
         actor_kwargs = {}
@@ -95,22 +97,27 @@ def create_actor(observation_space, action_space,
     actor = None
     if actor_cls is not None:
         actor = actor_cls(**actor_kwargs)
+    # HER actor
     elif is_her:
         obs_dim = len(observation_space["observation"].shape)
         goal_dim = len(observation_space["desired_goal"].shape)
         action_dim = len(action_space.shape)
         if obs_dim == 1 and goal_dim == 1 and action_dim == 1:
             actor = HerActorMLP(**actor_kwargs)
+    # Normal actor
     else:
         obs_dim = len(observation_space.shape)
         action_dim = len(action_space.shape)
         if obs_dim == 1 and action_dim == 1:
-            actor = ActorMLP(**actor_kwargs)
+            if policy == "deterministic":
+                actor = ActorMLP(**actor_kwargs)
+            elif policy == "gaussian":
+                actor = GaussianActorMLP(**actor_kwargs)
 
     if actor is None:  # TODO: CriticConv
         raise ValueError("Unknown actor type for observation space"
-                         " {} and action space {}".format(observation_space,
-                                                          action_space))
+                         " {}, action space {} and policy {}"
+                         .format(observation_space, action_space, policy))
 
     return actor
 

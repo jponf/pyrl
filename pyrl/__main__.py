@@ -15,6 +15,7 @@ import click
 import pyrl.util.logging
 import pyrl.cli.ddpg
 import pyrl.cli.her_ddpg
+import pyrl.cli.sac
 import pyrl.cli.td3
 import pyrl.cli.her_td3
 import pyrl.cli.list_envs
@@ -66,6 +67,9 @@ if __name__ == "__main__":
 
     main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_train)
     main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_test)
+
+    main.add_command(pyrl.cli.sac.cli_sac_train)
+    main.add_command(pyrl.cli.sac.cli_sac_test)
 
     main.add_command(pyrl.cli.td3.cli_td3_train)
     main.add_command(pyrl.cli.td3.cli_td3_test)
