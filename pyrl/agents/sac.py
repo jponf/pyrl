@@ -104,7 +104,6 @@ class SAC(Agent):
         """
         super(SAC, self).__init__(observation_space, action_space)
 
-        self.alpha = torch.as_tensor(alpha, device=_DEVICE)
         self.gamma = gamma
         self.tau = tau
 
@@ -142,8 +141,9 @@ class SAC(Agent):
         # Autotune alpha
         self.target_entropy = -torch.prod(
             torch.Tensor(action_space.shape)).item()
-        self._log_alpha = self.alpha.log().requires_grad_()
+        self._log_alpha = torch.as_tensor(alpha, dtype=torch.float32).log()
         if tune_alpha:
+            self._log_alpha.requires_grad_()
             self._alpha_optim = optim.Adam([self._log_alpha], lr=critic_lr)
         else:
             self._alpha_optim = None
@@ -156,6 +156,11 @@ class SAC(Agent):
 
         # Other attributes
         self._total_steps = 0
+
+    @property
+    def alpha(self):
+        with torch.no_grad():
+            return self._log_alpha.exp()
 
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
@@ -253,7 +258,6 @@ class SAC(Agent):
 
         # Jπ = 𝔼st∼D,εt∼N[α * log π(f(εt;st)|st) − Q(st,f(εt;st))]
         loss_a = (self.alpha * log_prob - min_q).mean()
-        # loss_a = -(min_q + (self.alpha * log_prob)).mean()
 
         self.actor_optimizer.zero_grad()
         loss_a.backward(retain_graph=True)
@@ -268,18 +272,14 @@ class SAC(Agent):
         return log_prob
 
     def _train_alpha(self, log_prob):
-        return 0
         if self._alpha_optim is not None:
-            print("1", self.alpha, self._log_alpha)
-            alpha_loss = -(self._log_alpha *
-                           (log_prob + self.target_entropy).detach()).mean()
+            alpha_loss = -(log_prob + self.target_entropy).detach().mean()
+            alpha_loss *= self._log_alpha.exp()
+
             self._alpha_optim.zero_grad()
-            print(self._log_alpha.grad)
             alpha_loss.backward()
-            print(self._log_alpha.grad)
             self._alpha_optim.step()
-            self.alpha = self._log_alpha.exp().detach()
-            print("2", self.alpha, self._log_alpha)
+
             self._summary.add_scalar(
                 'Loss/Alpha', alpha_loss.detach(), self._train_steps)
 
@@ -295,7 +295,7 @@ class SAC(Agent):
         state = {"critic1": self.critic_1.state_dict(),
                  "critic2": self.critic_2.state_dict(),
                  "actor": self.actor.state_dict(),
-                 "alpha": self.alpha,
+                 "log_alpha": self._log_alpha,
                  "obs_normalizer": self.obs_normalizer.state_dict(),
                  "train_steps": self._train_steps,
                  "total_steps": self._total_steps}
@@ -310,8 +310,8 @@ class SAC(Agent):
         self.actor.load_state_dict(state["actor"])
         self.target_actor.load_state_dict(state["actor"])
 
-        self.alpha = state["alpha"]
-        self._log_alpha = self.alpha.log().requires_grad_()
+        with torch.no_grad():
+            self._log_alpha.copy_(state["log_alpha"])
 
         self.obs_normalizer.load_state_dict(state["obs_normalizer"])
 
@@ -331,8 +331,9 @@ class SAC(Agent):
         self.actor.load_state_dict(actor_state)
         self.target_actor.load_state_dict(actor_state)
 
-        self.alpha = sum([x["alpha"] for x in states]).div(len(states))
-        self._log_alpha = self.alpha.log().requires_grad_()
+        with torch.no_grad():
+            self._log_alpha.copy_(sum(x["log_alpha"] for x in states))
+            self._log_alpha.div_(len(states))
 
         self.obs_normalizer.load_state_dict([x['obs_normalizer']
                                              for x in states])
