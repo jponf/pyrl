@@ -110,7 +110,7 @@ class GaussianActorMLP(nn.Module):
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,
-                 log_std_max=2, log_std_min=-20,
+                 log_std_max=10, log_std_min=-20,
                  epsilon=1e-6):
         assert hidden_layers >= 0
         assert hidden_size > 0
@@ -123,7 +123,7 @@ class GaussianActorMLP(nn.Module):
             raise ValueError('MLP action space must have a single'
                              ' dimension')
         if log_std_max < log_std_min:
-            raise ValueError("log_std_max must be <= than log_std_min")
+            raise ValueError("log_std_max must be >= than log_std_min")
 
         input_size = observation_space.shape[0]
         output_size = action_space.shape[0]
