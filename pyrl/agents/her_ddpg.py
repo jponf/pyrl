@@ -80,9 +80,11 @@ class HerDDPG(HerAgent):
         :param batch_size: Size of the sample used to train the actor and
             critic.
         :type batch_size: int
-        :param replay_buffer_size: Number of transitions to store in the replay
-            buffer.
-        :type replay_buffer_size: int
+        :param replay_buffer_episodes: Number of episodes to store in the
+            replay buffer.
+        :type replay_buffer_episodes: int
+        :param replay_buffer_steps: Maximum number of steps per episode.
+        :type replay_buffer_steps: int
         :param policy_delay: Number of times the critic networks are trained
             before training the policy network.
         :param replay_k: Ratio between HER replays and regular replays,
