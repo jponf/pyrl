@@ -4,7 +4,6 @@ import collections
 import errno
 import os
 import pickle
-import statistics
 
 # Scipy
 # import numpy as np
