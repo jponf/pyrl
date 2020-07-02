@@ -59,7 +59,8 @@ def main(verbose):
         _LOG.info("PyBullet environments not found")
 
 
-if __name__ == "__main__":
+def run_main():
+    """Utility function that runs the CLI main routine."""
     main.add_command(pyrl.cli.list_envs.cli_list_envs)
 
     main.add_command(pyrl.cli.ddpg.cli_ddpg_train)
@@ -78,3 +79,7 @@ if __name__ == "__main__":
     main.add_command(pyrl.cli.her_td3.cli_her_td3_test)
 
     main(prog_name="torchrl")
+
+
+if __name__ == "__main__":
+    run_main()

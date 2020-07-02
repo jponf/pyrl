@@ -46,14 +46,14 @@ with open("requirements.txt", "rt") as f:
     REQUIREMENTS = [x for x in map(str.strip, f.read().splitlines())
                     if x and not x.startswith("#")]
 
-KEYWORDS = ["Reinforcement Learning", "DDPG", "TD3",
+KEYWORDS = ["Reinforcement Learning", "DDPG", "TD3", "SAC",
             "Hindsight Experience Replay", "HER"]
 
 
 # Additional keyword arguments
 kwargs = {
     "entry_points": {
-        "console_scripts": []
+        "console_scripts": ["pyrl=pyrl.__main__:run_main"]
     },
 }
 
@@ -67,7 +67,7 @@ setup(
     long_description=README,
     author=AUTHORS,
     author_email=EMAILS,
-    url="https://git.gft.com/ai-practice-es/robotic-arm-rl",
+    url="https://git.gft.com/ai-practice-es/pyrl",
     license="",
     keywords=KEYWORDS,
     install_requires=REQUIREMENTS,
@@ -76,7 +76,7 @@ setup(
     platforms='any',
     zip_safe=True,
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Intended Audience :: Science/Research',
         'Programming Language :: Python :: 2',
