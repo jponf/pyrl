@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Soft Actor-Critic algorithm.
+"""
+
 import collections
 import errno
 import os
@@ -17,11 +25,11 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
+from .agents_utils import (create_normalizer,
+                           create_actor, create_critic, dicts_mean)
 from .core import Agent
 from .models_utils import soft_update
 from .replay_buffer import FlatReplayBuffer
-from .utils import (create_normalizer,
-                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
@@ -158,6 +166,7 @@ class SAC(Agent):
 
     @property
     def alpha(self):
+        """Relative importance of the entropy term against the reward."""
         with torch.no_grad():
             return self._log_alpha.exp()
 
@@ -379,14 +388,14 @@ class SAC(Agent):
             self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
 
     @classmethod
-    def load(cls, path, replay_buffer=True, **kwargs):
+    def load(cls, path, *args, replay_buffer=True, **kwargs):
         if not os.path.isdir(path):
             raise ValueError("{} is not a directory".format(path))
 
         # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
             _LOG.debug("(TD3) Loading agent arguments")
-            args_values = pickle.load(fh)
+            args_values = pickle.load(rfh)
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
@@ -397,9 +406,9 @@ class SAC(Agent):
         # Create instance and load the rest of the data
         instance = cls(**args_values)
 
-        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(TD3) Loading agent state")
-            state = pickle.load(fh)
+            state = pickle.load(rfh)
             instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
