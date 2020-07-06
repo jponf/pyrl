@@ -14,7 +14,7 @@ import pyrl.util.summary
 ###############################################################################
 
 @six.add_metaclass(abc.ABCMeta)
-class BaseAgent(object):
+class BaseAgent:
     """Base Agent interface."""
 
     def __init__(self, *args, **kwargs):
@@ -46,7 +46,6 @@ class BaseAgent(object):
         """Sets the agent training mode."""
         self._train_mode = mode
 
-    @abc.abstractmethod
     def begin_episode(self):
         """Prepares the agent to run a new training episode.
 
@@ -54,7 +53,6 @@ class BaseAgent(object):
         episode, for example by emptying buffers, reseting noise, etc.
         """
 
-    @abc.abstractmethod
     def end_episode(self):
         """Indicates the agent that the episode that started in a previous
         call to `begin_episode` has finished.

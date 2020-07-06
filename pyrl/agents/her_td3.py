@@ -28,7 +28,7 @@ import pyrl.util.umath as umath
 import pyrl.util.ugym
 
 from .agents_utils import (create_action_noise, create_normalizer,
-                           dicts_mean)
+                           dicts_mean, load_her_demonstrations)
 from .core import HerAgent
 from .models_utils import soft_update
 from .noise import NormalActionNoise
@@ -222,34 +222,9 @@ class HerTD3(HerAgent):
     ##########################
 
     def load_demonstrations(self, demo_path):
-        demos = np.load(demo_path, allow_pickle=True)
-        d_obs, d_acs, d_info = demos["obs"], demos["acs"], demos["info"]
-        num_episodes = min(len(d_obs), len(d_acs), len(d_info))
-
-        buffer = HerReplayBuffer(
-            obs_shape=self.replay_buffer.obs_shape,
-            goal_shape=self.replay_buffer.goal_shape,
-            action_shape=self.replay_buffer.action_shape,
-            max_episodes=num_episodes, max_steps=self.replay_buffer.max_steps)
-
-        for obs, acs, info in zip(d_obs, d_acs, d_info):
-            if len(acs) > buffer.max_steps:  # too many steps, ignore
-                continue
-
-            states, next_states = obs[:-1], obs[1:]
-            transitions = zip(states, acs, next_states, info)
-            for state, action, next_state, infos in transitions:
-                reward = self.env.compute_reward(next_state["achieved_goal"],
-                                                 next_state["desired_goal"],
-                                                 info)
-                buffer.add(obs=state["observation"],
-                           action=self._to_actor_space(action),
-                           next_obs=next_state["observation"],
-                           reward=reward,
-                           terminal=info.get("is_success", False),
-                           goal=next_state["desired_goal"],
-                           achieved_goal=next_state["achieved_goal"])
-            buffer.save_episode()
+        buffer = load_her_demonstrations(
+            demo_path, env=self.env, action_fn=self._to_actor_space,
+            max_steps=self.replay_buffer.max_steps)
 
         _LOG.debug("(HER-TD3) Loaded Demonstrations")
         _LOG.debug("(HER-TD3)     = Num. Episodes: %d", buffer.num_episodes)
@@ -274,6 +249,7 @@ class HerTD3(HerAgent):
         self.action_noise.reset()
 
     def end_episode(self):
+        super(HerTD3, self).end_episode()
         self.replay_buffer.save_episode()
 
     def update(self, state, action, reward, next_state, terminal):
@@ -337,28 +313,29 @@ class HerTD3(HerAgent):
                     out=next_action)
             next_action = torch.from_numpy(next_action).to(_DEVICE)
 
-            target_q1 = self.target_critic_1(next_obs, goal, next_action)
-            target_q2 = self.target_critic_2(next_obs, goal, next_action)
-            min_target_q = torch.min(target_q1, target_q2)
-            target_q = (1 - terminal.int()) * self.gamma * min_target_q
-            target_q += self.reward_scale * reward
+            next_q1 = self.target_critic_1(next_obs, goal, next_action)
+            next_q2 = self.target_critic_2(next_obs, goal, next_action)
+
+            next_q = torch.min(next_q1, next_q2)
+            next_q *= (1 - terminal.int()) * self.gamma * next_q
+            next_q += self.reward_scale * reward
 
         # Optimize critics
         current_q1 = self.critic_1(obs, goal, action)
-        loss_q1 = F.smooth_l1_loss(current_q1, target_q)
+        loss_q1 = F.smooth_l1_loss(current_q1, next_q)
         self.critic_1_optimizer.zero_grad()
         loss_q1.backward()
         self.critic_1_optimizer.step()
 
         current_q2 = self.critic_2(obs, goal, action)
-        loss_q2 = F.smooth_l1_loss(current_q2, target_q)
+        loss_q2 = F.smooth_l1_loss(current_q2, next_q)
         self.critic_2_optimizer.zero_grad()
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self._summary.add_scalars("Q", {"Q1": current_q1.mean(),
-                                        "Q2": current_q2.mean(),
-                                        "Target": target_q.mean()},
+        self._summary.add_scalars("Q", {"Mean_Q1": current_q1.mean(),
+                                        "Mean_Q2": current_q2.mean(),
+                                        "Mean_Target": next_q.mean()},
                                   self._train_steps)
         self._summary.add_scalar("Loss/Critic1", loss_q1, self._train_steps)
         self._summary.add_scalar("Loss/Critic2", loss_q2, self._train_steps)
@@ -426,23 +403,6 @@ class HerTD3(HerAgent):
         soft_update(self.critic_1, self.target_critic_1, self.tau)
         soft_update(self.critic_2, self.target_critic_2, self.tau)
 
-    # Utilities
-    ########################
-
-    def _to_actor_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.env.action_space.low,
-                           max_x=self.env.action_space.high,
-                           min_out=self.actor.action_space.low,
-                           max_out=self.actor.action_space.high)
-
-    def _to_action_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.actor.action_space.low,
-                           max_x=self.actor.action_space.high,
-                           min_out=self.env.action_space.low,
-                           max_out=self.env.action_space.high)
-
     # Agent State
     ########################
 
@@ -491,6 +451,23 @@ class HerTD3(HerAgent):
 
         self._train_steps = max(x["train_steps"] for x in states)
         self._total_steps = max(x["total_steps"] for x in states)
+
+    # Utilities
+    ########################
+
+    def _to_actor_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.env.action_space.low,
+                           max_x=self.env.action_space.high,
+                           min_out=self.actor.action_space.low,
+                           max_out=self.actor.action_space.high)
+
+    def _to_action_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.actor.action_space.low,
+                           max_x=self.actor.action_space.high,
+                           min_out=self.env.action_space.low,
+                           max_out=self.env.action_space.high)
 
     # Save/Load Agent
     ########################

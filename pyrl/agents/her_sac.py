@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Hindsight Experience Replay combined with
+the Soft Actor-Critic algorithm.
+"""
+
 import collections
 import errno
 import os
 import pickle
-
-# Scipy
-import numpy as np
 
 # Torch
 import torch
@@ -18,12 +24,13 @@ import pyrl.util.logging
 import pyrl.util.umath as umath
 import pyrl.util.ugym
 
+from .agents_utils import (create_normalizer, dicts_mean,
+                           load_her_demonstrations)
 from .core import HerAgent
 from .models_utils import soft_update
-from .noise import NormalActionNoise
 from .replay_buffer import HerReplayBuffer
-from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic, dicts_mean)
+from .sac import build_sac_ac
+
 
 ###############################################################################
 
@@ -140,7 +147,7 @@ class HerSAC(HerAgent):
 
         self._replay_k = replay_k
         self._demo_batch_size = demo_batch_size
-        self._q_filter = True
+        self._q_filter = q_filter
         self._action_penalty = action_penalty
         self._prm_loss_weight = prm_loss_weight
         if aux_loss_weight is None:
@@ -149,10 +156,10 @@ class HerSAC(HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = _build_ac(self.observation_space,
-                                                 self.action_space,
-                                                 actor_cls, actor_kwargs,
-                                                 critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_sac_ac(self.env.observation_space,
+                                                    self.env.action_space,
+                                                    actor_cls, actor_kwargs,
+                                                    critic_cls, critic_kwargs)
 
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
@@ -182,43 +189,360 @@ class HerSAC(HerAgent):
 
         # Normalizer
         self._obs_normalizer_arg = observation_normalizer
-        self.obs_normalizer = create_normalizer(observation_normalizer,
-                                                self.observation_space.shape,
-                                                clip_range=observation_clip)
+        self.obs_normalizer = create_normalizer(
+            observation_normalizer,
+            self.env.observation_space["observation"].shape,
+            clip_range=observation_clip)
+        self.goal_normalizer = create_normalizer(
+            observation_normalizer,
+            self.env.observation_space["desired_goal"].shape,
+            clip_range=observation_clip)
+
+        # Demonstration replay buffer
+        self._demo_replay_buffer = None
 
         # Other attributes
         self._total_steps = 0
 
+    @property
+    def alpha(self):
+        """Relative importance of the entropy term against the reward."""
+        with torch.no_grad():
+            return self._log_alpha.exp()
 
-#
-###############################################################################
+    # HerAgent methods
+    ##########################
 
-def _build_ac(observation_space, action_space,
-              actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs):
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs,
-                         policy="gaussian").to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs,
-                                policy="gaussian").to(_DEVICE)
-    target_actor.load_state_dict(actor.state_dict())
-    target_actor.eval()
+    def load_demonstrations(self, demo_path):
+        buffer = load_her_demonstrations(
+            demo_path, env=self.env, action_fn=self._to_actor_space,
+            max_steps=self.replay_buffer.max_steps)
 
-    critic_1 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1.load_state_dict(critic_1.state_dict())
-    target_critic_1.eval()
+        _LOG.debug("(HER-SAC) Loaded Demonstrations")
+        _LOG.debug("(HER-SAC)     = Num. Episodes: %d", buffer.num_episodes)
+        _LOG.debug("(HER-SAC)     = Num. Steps: %d", buffer.count_steps())
 
-    critic_2 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2.load_state_dict(critic_2.state_dict())
-    target_critic_2.eval()
+        if buffer.count_steps() < self._demo_batch_size:
+            raise ValueError("demonstrations replay buffer has less than"
+                             " `demo_batch_size` steps")
 
-    return ((actor, target_actor),
-            (critic_1, target_critic_1),
-            (critic_2, target_critic_2))
+        self._demo_replay_buffer = buffer
+
+    # BaseAgent methods
+    ##########################
+
+    def set_train_mode(self, mode=True):
+        super(HerSAC, self).set_train_mode(mode)
+        self.actor.train(mode=mode)
+        self.critic_1.train(mode=mode)
+        self.critic_2.train(mode=mode)
+
+    def end_episode(self):
+        super(HerSAC, self).end_episode()
+        self.replay_buffer.save_episode()
+
+    def update(self, state, action, reward, next_state, terminal):
+        self._total_steps += 1
+
+        self.obs_normalizer.update(state["observation"])
+        self.goal_normalizer.update(state["desired_goal"])
+
+        self.replay_buffer.add(obs=state["observation"],
+                               action=self._to_actor_space(action),
+                               next_obs=next_state["observation"],
+                               reward=reward,
+                               terminal=terminal,
+                               goal=next_state["desired_goal"],
+                               achieved_goal=next_state["achieved_goal"])
+    @torch.no_grad()
+    def compute_action(self, state):
+        # Random exploration
+        if self._train_mode and self._total_steps < self.random_steps:
+            return self.env.action_space.sample()
+
+        # Pre-process
+        obs = torch.from_numpy(state["observation"]).float()
+        goal = torch.from_numpy(state["desired_goal"]).float()
+        obs = self.obs_normalizer.transform(obs).unsqueeze_(0).to(_DEVICE)
+        goal = self.goal_normalizer.transform(goal).unsqueeze_(0).to(_DEVICE)
+
+        # Compute action
+        rand_action, _, mean_action = self.actor.sample(obs, goal)
+
+        action = rand_action if self._train_mode else mean_action
+        action = action.squeeze_(0).cpu().numpy()
+        return self._to_action_space(action)
+
+    def train(self, steps, progress=False):
+        if self.replay_buffer.count_steps() >= self.batch_size:
+            super(HerSAC, self).train(steps, progress)
+
+    def _train(self):
+        batch, demo_mask = self._sample_batch()
+        (obs, action, next_obs, reward, terminal, goal, _) = batch
+
+        obs = self.obs_normalizer.transform(obs)
+        next_obs = self.obs_normalizer.transform(next_obs)
+        goal = self.goal_normalizer.transform(goal)
+
+        self._train_critic(obs, action, next_obs, goal, reward, terminal)
+        log_prob = self._train_policy(obs, action, goal, demo_mask)
+        self._train_alpha(log_prob)
+        self._update_target_networks()
+
+    def _train_critic(self, obs, action, next_obs, goal, reward, terminal):
+        with torch.no_grad():
+            next_action, next_log_p, _ = self.target_actor.sample(next_obs,
+                                                                  goal)
+
+            next_q1 = self.target_critic_1(next_obs, goal, next_action)
+            next_q2 = self.target_critic_2(next_obs, goal, next_action)
+
+            next_q = torch.min(next_q1, next_q2) - self.alpha * next_log_p
+            next_q *= (1 - terminal.int()) * self.gamma
+            next_q += self.reward_scale * reward
+
+        # Optimize critics
+        current_q1 = self.critic_1(obs, goal, action)
+        loss_q1 = F.smooth_l1_loss(current_q1, next_q)
+        self.critic_1_optimizer.zero_grad()
+        loss_q1.backward()
+        self.critic_1_optimizer.step()
+
+        current_q2 = self.critic_2(obs, goal, action)
+        loss_q2 = F.smooth_l1_loss(current_q2, next_q)
+        self.critic_2_optimizer.zero_grad()
+        loss_q2.backward()
+        self.critic_2_optimizer.step()
+
+        with torch.no_grad():
+            self._summary.add_scalars("Q", {"Mean_Q1": current_q1.mean(),
+                                            "Mean_Q2": current_q2.mean(),
+                                            "Mean_Target": next_q.mean()},
+                                      self._train_steps)
+            self._summary.add_scalar("Loss/Q1", loss_q1, self._train_steps)
+            self._summary.add_scalar("Loss/Q2", loss_q2, self._train_steps)
+
+    def _train_policy(self, obs, action, goal, demo_mask):
+        actor_out, log_prob, _ = self.actor.sample(obs, goal)
+        min_q = torch.min(self.critic_1(obs, goal, actor_out),
+                          self.critic_2(obs, goal, actor_out))
+
+        # Jπ = 𝔼st∼D,εt∼N[α * log π(f(εt;st)|st) − Q(st,f(εt;st))]
+        pi_loss = (self.alpha * log_prob - min_q).mean()
+        pi_loss += self._action_penalty * actor_out.pow(2).mean()
+        if demo_mask.any():
+            cloning_loss = (actor_out[demo_mask] - action[demo_mask])
+            if self._q_filter:
+                cur_min_q = torch.min(self.critic_1(obs, goal, action),
+                                      self.critic_2(obs, goal, action))
+
+                q_mask = (cur_min_q[demo_mask] > min_q[demo_mask]).flatten()
+                cloning_loss = cloning_loss[q_mask]
+
+            prm_loss = self._prm_loss_weight * pi_loss
+            aux_loss = self._aux_loss_weight * cloning_loss.pow(2).sum()
+            pi_loss = prm_loss + aux_loss
+
+            self._summary.add_scalars("Loss", {"Actor_PRM": prm_loss,
+                                               "Actor_AUX": aux_loss},
+                                      self._train_steps)
+
+        self.actor_optimizer.zero_grad()
+        pi_loss.backward(retain_graph=True)
+        self.actor_optimizer.step()
+
+        with torch.no_grad():
+            self._summary.add_scalar("Loss/Policy", pi_loss, self._train_steps)
+            self._summary.add_scalar("Stats/LogProb", log_prob.mean(),
+                                     self._train_steps)
+            self._summary.add_scalar("Stats/Alpha", self.alpha,
+                                     self._train_steps)
+        return log_prob
+
+    def _train_alpha(self, log_prob):
+        if self._alpha_optim is not None:
+            alpha_loss = -(log_prob + self.target_entropy).detach().mean()
+            alpha_loss *= self._log_alpha.exp()
+
+            self._alpha_optim.zero_grad()
+            alpha_loss.backward()
+            self._alpha_optim.step()
+
+            self._summary.add_scalar(
+                'Loss/Alpha', alpha_loss.detach(), self._train_steps)
+
+    def _update_target_networks(self):
+        soft_update(self.actor, self.target_actor, self.tau)
+        soft_update(self.critic_1, self.target_critic_1, self.tau)
+        soft_update(self.critic_2, self.target_critic_2, self.tau)
+
+    def _sample_batch(self):
+        def _sample_reward_fn(achieved_goals, goals):
+            return self.env.compute_reward(achieved_goals, goals, None)
+
+        has_demo = (self._demo_replay_buffer is not None and
+                    self._demo_batch_size > 0)
+        demo_batch_size = has_demo * self._demo_batch_size
+
+        batch = self.replay_buffer.sample_batch_torch(
+            sample_size=self.batch_size, replay_k=self._replay_k,
+            reward_fn=_sample_reward_fn, device=_DEVICE)
+
+        if has_demo:
+            demo_batch = self._demo_replay_buffer.sample_batch_torch(
+                sample_size=demo_batch_size, replay_k=0,
+                reward_fn=_sample_reward_fn, device=_DEVICE)
+            batch = tuple(torch.cat((x, y), dim=0)
+                          for x, y in zip(batch, demo_batch))
+
+        exp_mask = torch.zeros(self.batch_size, dtype=torch.bool)
+        demo_mask = torch.ones(demo_batch_size, dtype=torch.bool)
+        return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
+
+    # Agent State
+    ########################
+
+    def state_dict(self):
+        state = {"critic1": self.critic_1.state_dict(),
+                 "critic2": self.critic_2.state_dict(),
+                 "actor": self.actor.state_dict(),
+                 "log_alpha": self._log_alpha,
+                 "obs_normalizer": self.obs_normalizer.state_dict(),
+                 "train_steps": self._train_steps,
+                 "total_steps": self._total_steps}
+
+        return state
+
+    def load_state_dict(self, state):
+        self.critic_1.load_state_dict(state['critic1'])
+        self.target_critic_1.load_state_dict(state['critic1'])
+        self.critic_2.load_state_dict(state['critic2'])
+        self.target_critic_2.load_state_dict(state['critic2'])
+        self.actor.load_state_dict(state["actor"])
+        self.target_actor.load_state_dict(state["actor"])
+
+        with torch.no_grad():
+            self._log_alpha.copy_(state["log_alpha"])
+
+        self.obs_normalizer.load_state_dict(state["obs_normalizer"])
+
+        self._train_steps = state["train_steps"]
+        self._total_steps = state["total_steps"]
+
+    def aggregate_state_dicts(self, states):
+        critic_1_state = dicts_mean([x['critic1'] for x in states])
+        self.critic_1.load_state_dict(critic_1_state)
+        self.target_critic_1.load_state_dict(critic_1_state)
+
+        critic_2_state = dicts_mean([x['critic2'] for x in states])
+        self.critic_2.load_state_dict(critic_2_state)
+        self.target_critic_2.load_state_dict(critic_2_state)
+
+        actor_state = dicts_mean([x['actor'] for x in states])
+        self.actor.load_state_dict(actor_state)
+        self.target_actor.load_state_dict(actor_state)
+
+        with torch.no_grad():
+            self._log_alpha.copy_(sum(x["log_alpha"] for x in states))
+            self._log_alpha.div_(len(states))
+
+        self.obs_normalizer.load_state_dict([x['obs_normalizer']
+                                             for x in states])
+
+        self._train_steps = max(x["train_steps"] for x in states)
+        self._total_steps = max(x["total_steps"] for x in states)
+
+    def save(self, path, replay_buffer=True):
+        try:
+            os.makedirs(path)
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
+
+        args = collections.OrderedDict([
+            ('alpha', self.alpha.item()),
+            ('gamma', self.gamma),
+            ('tau', self.tau),
+            ('batch_size', self.batch_size),
+            ('reward_scale', self.reward_scale),
+            ('replay_buffer_episodes', self.replay_buffer.max_episodes),
+            ('replay_buffer_steps', self.replay_buffer.max_steps),
+            ('random_steps', self.random_steps),
+
+            # HER args
+            ('replay_k', self._replay_k),
+            ('demo_batch_size', self._demo_batch_size),
+            ('q_filter', self._q_filter),
+            ('action_penalty', self._action_penalty),
+            ('prm_loss_weight', self._prm_loss_weight),
+            ('aux_loss_weight', self._aux_loss_weight),
+
+            # Actor-Critic
+            ('actor_cls', type(self.actor)),
+            ('actor_kwargs', self._actor_kwargs),
+            ('actor_lr', self._actor_lr),
+            ('critic_cls', type(self.critic_1)),
+            ('critic_kwargs', self._critic_kwargs),
+            ('critic_lr', self._critic_lr),
+            ('tune_alpha', self._alpha_optim is not None),
+
+            # Normalize
+            ('observation_normalizer', self._obs_normalizer_arg),
+            ('observation_clip', self.obs_normalizer.clip_range),
+        ])
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+
+        state = self.state_dict()
+        pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
+
+        if replay_buffer:
+            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+
+    @classmethod
+    def load(cls, path, env, *args, replay_buffer=True, **kwargs):
+        if not os.path.isdir(path):
+            raise ValueError("{} is not a directory".format(path))
+
+        # Load and Override arguments used to build the instance
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
+            _LOG.debug("(TD3) Loading agent arguments")
+            args_values = pickle.load(rfh)
+            args_values.update(kwargs)
+
+            fmt_string = "    {{:>{}}}: {{}}".format(
+                max(len(x) for x in args_values.keys()))
+            for key, value in args_values.items():
+                _LOG.debug(fmt_string.format(key, value))
+
+        # Create instance and load the rest of the data
+        instance = cls(**args_values)
+
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
+            _LOG.debug("(TD3) Loading agent state")
+            state = pickle.load(rfh)
+            instance.load_state_dict(state)
+
+        replay_buffer_path = os.path.join(path, "replay_buffer.h5")
+        if replay_buffer and os.path.isfile(replay_buffer_path):
+            _LOG.debug("(TD3) Loading replay buffer")
+            instance.replay_buffer.load(replay_buffer_path)
+
+        return instance
+
+    # Utilities
+    ########################
+
+    def _to_actor_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.env.action_space.low,
+                           max_x=self.env.action_space.high,
+                           min_out=self.actor.action_space.low,
+                           max_out=self.actor.action_space.high)
+
+    def _to_action_space(self, action):
+        return umath.scale(x=action,
+                           min_x=self.actor.action_space.low,
+                           max_x=self.actor.action_space.high,
+                           min_out=self.env.action_space.low,
+                           max_out=self.env.action_space.high)

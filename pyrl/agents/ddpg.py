@@ -179,9 +179,6 @@ class DDPG(Agent):
             _perturb_actor(self.actor, self.perturbed_actor,
                            self.param_noise.current_stddev)
 
-    def end_episode(self):
-        pass
-
     def update(self, state, action, reward, next_state, terminal):
         action = self._to_actor_space(action)  # re-scale action
 

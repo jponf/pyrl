@@ -183,9 +183,6 @@ class TD3(Agent):
     def begin_episode(self):
         self.action_noise.reset()
 
-    def end_episode(self):
-        pass
-
     def update(self, state, action, reward, next_state, terminal):
         self._total_steps += 1
         action = self._to_actor_space(action)  # re-scale action
