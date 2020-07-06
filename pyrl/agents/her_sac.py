@@ -516,7 +516,7 @@ class HerSAC(HerAgent):
                 _LOG.debug(fmt_string.format(key, value))
 
         # Create instance and load the rest of the data
-        instance = cls(**args_values)
+        instance = cls(env, **args_values)
 
         with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(TD3) Loading agent state")
