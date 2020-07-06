@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Hindsight Experience Replay combined with
+the Deep Deterministic Policy Gradient algorithm.
+"""
 
 import collections
 import errno
@@ -20,11 +26,11 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
+from .agents_utils import create_action_noise, create_normalizer, dicts_mean
 from .core import HerAgent
+from .ddpg import build_ddpg_ac
 from .models_utils import soft_update
 from .replay_buffer import HerReplayBuffer
-from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
@@ -141,7 +147,7 @@ class HerDDPG(HerAgent):
 
         self._replay_k = replay_k
         self._demo_batch_size = demo_batch_size
-        self._q_filter = True
+        self._q_filter = q_filter
         self._action_penalty = action_penalty
         self._prm_loss_weight = prm_loss_weight
         if aux_loss_weight is None:
@@ -150,10 +156,11 @@ class HerDDPG(HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Build model (AC architecture)
-        actors, critics = _build_ac(self.env.observation_space,
-                                    self.env.action_space,
-                                    actor_cls, actor_kwargs,
-                                    critic_cls, critic_kwargs)
+        actors, critics = build_ddpg_ac(self.env.observation_space,
+                                        self.env.action_space,
+                                        actor_cls, actor_kwargs,
+                                        critic_cls, critic_kwargs,
+                                        parameter_noise=False)
         self.actor, self.target_actor = actors
         self.critic, self.target_critic = critics
 
@@ -199,12 +206,12 @@ class HerDDPG(HerAgent):
             action_shape=self.replay_buffer.action_shape,
             max_episodes=num_episodes, max_steps=self.replay_buffer.max_steps)
 
-        for obs, acs, info in zip(d_obs, d_acs, d_info):
+        for obs, acs, infos in zip(d_obs, d_acs, d_info):
             if len(acs) > buffer.max_steps:  # too many steps, ignore
                 continue
 
             states, next_states = obs[:-1], obs[1:]
-            transitions = zip(states, acs, next_states, info)
+            transitions = zip(states, acs, next_states, infos)
             for state, action, next_state, info in transitions:
                 reward = self.env.compute_reward(next_state["achieved_goal"],
                                                  next_state["desired_goal"],
@@ -471,13 +478,13 @@ class HerDDPG(HerAgent):
             self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
 
     @classmethod
-    def load(cls, path, env, replay_buffer=True, **kwargs):
+    def load(cls, path, env, *args, replay_buffer=True, **kwargs):
         if not os.path.isdir(path):
             raise ValueError("{} is not a directory".format(path))
 
-        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
             _LOG.debug("(HER-DDPG) Loading agent arguments")
-            args_values = pickle.load(fh)
+            args_values = pickle.load(rfh)
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
@@ -488,9 +495,9 @@ class HerDDPG(HerAgent):
         # Create instance and load the rest of the data
         instance = cls(env, **args_values)
 
-        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(HER-TD3) Loading agent state")
-            state = pickle.load(fh)
+            state = pickle.load(rfh)
             instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
@@ -499,24 +506,3 @@ class HerDDPG(HerAgent):
             instance.replay_buffer.load(replay_buffer_path)
 
         return instance
-
-
-###############################################################################
-
-def _build_ac(observation_space, action_space, actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs):
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor.load_state_dict(actor.state_dict())
-    target_actor.eval()
-
-    critic = create_critic(observation_space, action_space,
-                           critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic = create_critic(observation_space, action_space,
-                                  critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic.load_state_dict(critic.state_dict())
-    target_critic.eval()
-
-    return (actor, target_actor), (critic, target_critic)

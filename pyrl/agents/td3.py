@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Twin Delayed Deep Deterministic Policy
+Gradient algorithm.
+"""
+
 import collections
 import errno
 import os
@@ -17,12 +26,12 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
+from .agents_utils import (create_action_noise, create_normalizer,
+                           create_actor, create_critic, dicts_mean)
 from .core import Agent
 from .models_utils import soft_update
 from .noise import NormalActionNoise
 from .replay_buffer import FlatReplayBuffer
-from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
@@ -123,10 +132,10 @@ class TD3(Agent):
         self.random_steps = random_steps
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = _build_ac(self.observation_space,
-                                                 self.action_space,
-                                                 actor_cls, actor_kwargs,
-                                                 critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_td3_ac(self.observation_space,
+                                                    self.action_space,
+                                                    actor_cls, actor_kwargs,
+                                                    critic_cls, critic_kwargs)
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
         self.critic_2, self.target_critic_2 = critics_2
@@ -356,14 +365,14 @@ class TD3(Agent):
             self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
 
     @classmethod
-    def load(cls, path, replay_buffer=True, **kwargs):
+    def load(cls, path, *args, replay_buffer=True, **kwargs):
         if not os.path.isdir(path):
             raise ValueError("{} is not a directory".format(path))
 
         # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
             _LOG.debug("(TD3) Loading agent arguments")
-            args_values = pickle.load(fh)
+            args_values = pickle.load(rfh)
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
@@ -374,9 +383,9 @@ class TD3(Agent):
         # Create instance and load the rest of the data
         instance = cls(**args_values)
 
-        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(TD3) Loading agent state")
-            state = pickle.load(fh)
+            state = pickle.load(rfh)
             instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
@@ -407,9 +416,10 @@ class TD3(Agent):
 #
 ###############################################################################
 
-def _build_ac(observation_space, action_space,
-              actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs):
+def build_td3_ac(observation_space, action_space,
+                 actor_cls, actor_kwargs,
+                 critic_cls, critic_kwargs):
+    """Builds the actor-critic architecture for the TD3 algorithm."""
     actor = create_actor(observation_space, action_space,
                          actor_cls, actor_kwargs).to(_DEVICE)
     target_actor = create_actor(observation_space, action_space,

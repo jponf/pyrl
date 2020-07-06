@@ -1,5 +1,8 @@
 # -*- encoding: utf-8 -*-
 
+"""Simple parallel agent trainer."""
+
+
 import enum
 import importlib
 import multiprocessing
@@ -28,7 +31,7 @@ if (sys.version_info.major, sys.version_info.minor) < (3, 4):
 
 _LOG = pyrl.util.logging.get_logger()
 
-mp = multiprocessing.get_context("spawn")
+mp = multiprocessing.get_context("spawn")  # pylint: disable=invalid-name
 
 
 ###############################################################################
@@ -42,6 +45,9 @@ class _Message(enum.Enum):
 ###############################################################################
 
 class AgentTrainer(object):
+    """Trains an agent and coordinates multiple agents training in paralel
+    to exploit information learned by all of them.
+    """
 
     def __init__(self, agent_cls, env_name, num_envs,
                  root_log_dir, num_cpus=1, seed=None):
@@ -71,6 +77,7 @@ class AgentTrainer(object):
 
     def initialize_agent(self, agent_kwargs=None, agent_path="",
                          demo_path=""):
+        """Initializes the agent."""
         self.agent = _initialize_agent(self._agent_cls, self.env,
                                        agent_kwargs=agent_kwargs,
                                        agent_path=agent_path,
@@ -94,6 +101,7 @@ class AgentTrainer(object):
             )
 
     def start(self):
+        """Starts trainer processes to run the training in parallel."""
         if not self._trainers:
             raise RuntimeError("agent not initialized")
 
@@ -113,6 +121,14 @@ class AgentTrainer(object):
             trainer.join()
 
     def run(self, num_episodes, train_steps):
+        """Lets the agents explore for `num_episodes` before performing
+        `train_steps` training steps.
+
+        :param num_episodes: Number of episodes to explore before training.
+        :param train_steps: Number of training steps to perform after
+            exploring. The special value 0 is translated to the same number
+            of steps taken during exploration.
+        """
         if not self._trainers:
             raise RuntimeError("there are no workers")
         if not all(x.is_alive() for x in self._trainers):
@@ -238,7 +254,7 @@ class Trainer(mp.Process):
                         break
                     else:
                         raise RuntimeError("unknown message {}".format(msg))
-                except Exception as err:
+                except Exception as err:  # pylint: disable=broad-except
                     trace = traceback.format_exc()
                     error = (err, trace)
 

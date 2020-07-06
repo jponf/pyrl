@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+"""Core agent classes interfaces."""
 
 import abc
 import six
@@ -22,6 +21,7 @@ class BaseAgent(object):
         super(BaseAgent, self).__init__(*args, **kwargs)
         self._summary = pyrl.util.summary.DummySummary()
 
+        self._num_episodes = 0
         self._train_steps = 0
         self._train_mode = True
 
@@ -177,7 +177,12 @@ class Agent(BaseAgent):
         self.action_space = action_space
 
     @classmethod
-    def load(cls, path, replay_buffer=True, *args, **kwargs):
+    def load(cls, path, *args, replay_buffer=True, **kwargs):
+        """Loads the agent from the given path.
+
+        :param path: Path that contains the agent information.
+        :param replay_buffer: If set loads the replay buffer.
+        """
         raise NotImplementedError
 
 
@@ -211,5 +216,11 @@ class HerAgent(BaseAgent):
         """
 
     @classmethod
-    def load(cls, path, env, replay_buffer=True, *args, **kwargs):
+    def load(cls, path, env, *args, replay_buffer=True, **kwargs):
+        """Loads the agent from the given path.
+
+        :param path: Path that contains the agent information.
+        :param env: Environment that the agent acts on.
+        :param replay_buffer: If set loads the replay buffer.
+        """
         raise NotImplementedError

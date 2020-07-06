@@ -1,11 +1,18 @@
 # -*- coding: utf-8 -*-
 
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Hindsight Experience Replay combined with
+the Twin Delayed Deep Deterministic Policy Gradient algorithm.
+"""
+
 import collections
 import errno
 import os
-import six.moves.cPickle as pickle
-
-import six
+import pickle
 
 # Scipy
 import numpy as np
@@ -20,12 +27,14 @@ import pyrl.util.logging
 import pyrl.util.umath as umath
 import pyrl.util.ugym
 
+from .agents_utils import (create_action_noise, create_normalizer,
+                           dicts_mean)
 from .core import HerAgent
 from .models_utils import soft_update
 from .noise import NormalActionNoise
 from .replay_buffer import HerReplayBuffer
-from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic, dicts_mean)
+from .td3 import build_td3_ac
+
 
 ###############################################################################
 
@@ -57,7 +66,7 @@ class HerTD3(HerAgent):
                  random_steps=1000,
                  replay_k=2,
                  demo_batch_size=128,
-                 q_filter=False,
+                 q_filter=True,
                  action_penalty=1.0,
                  prm_loss_weight=0.001,
                  aux_loss_weight=None,
@@ -150,7 +159,7 @@ class HerTD3(HerAgent):
 
         self._replay_k = replay_k
         self._demo_batch_size = demo_batch_size
-        self._q_filter = True
+        self._q_filter = q_filter
         self._action_penalty = action_penalty
         self._prm_loss_weight = prm_loss_weight
         if aux_loss_weight is None:
@@ -159,10 +168,10 @@ class HerTD3(HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = _build_ac(self.env.observation_space,
-                                                 self.env.action_space,
-                                                 actor_cls, actor_kwargs,
-                                                 critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_td3_ac(self.env.observation_space,
+                                                    self.env.action_space,
+                                                    actor_cls, actor_kwargs,
+                                                    critic_cls, critic_kwargs)
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
         self.critic_2, self.target_critic_2 = critics_2
@@ -223,13 +232,13 @@ class HerTD3(HerAgent):
             action_shape=self.replay_buffer.action_shape,
             max_episodes=num_episodes, max_steps=self.replay_buffer.max_steps)
 
-        for obs, acs, info in six.moves.zip(d_obs, d_acs, d_info):
+        for obs, acs, info in zip(d_obs, d_acs, d_info):
             if len(acs) > buffer.max_steps:  # too many steps, ignore
                 continue
 
             states, next_states = obs[:-1], obs[1:]
-            transitions = six.moves.zip(states, acs, next_states, info)
-            for state, action, next_state, info in transitions:
+            transitions = zip(states, acs, next_states, info)
+            for state, action, next_state, infos in transitions:
                 reward = self.env.compute_reward(next_state["achieved_goal"],
                                                  next_state["desired_goal"],
                                                  info)
@@ -406,7 +415,7 @@ class HerTD3(HerAgent):
                 sample_size=demo_batch_size, replay_k=0,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
             batch = tuple(torch.cat((x, y), dim=0)
-                          for x, y in six.moves.zip(batch, demo_batch))
+                          for x, y in zip(batch, demo_batch))
 
         exp_mask = torch.zeros(self.batch_size, dtype=torch.bool)
         demo_mask = torch.ones(demo_batch_size, dtype=torch.bool)
@@ -538,14 +547,14 @@ class HerTD3(HerAgent):
             self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
 
     @classmethod
-    def load(cls, path, env, replay_buffer=True, **kwargs):
+    def load(cls, path, env, *args, replay_buffer=True, **kwargs):
         if not os.path.isdir(path):
             raise ValueError("{} is not a directory".format(path))
 
         # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
             _LOG.debug("(HER-TD3) Loading agent arguments")
-            args_values = pickle.load(fh)
+            args_values = pickle.load(rfh)
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
@@ -556,9 +565,9 @@ class HerTD3(HerAgent):
         # Create instance and load the rest of the data
         instance = cls(env, **args_values)
 
-        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(HER-TD3) Loading agent state")
-            state = pickle.load(fh)
+            state = pickle.load(rfh)
             instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
@@ -567,34 +576,3 @@ class HerTD3(HerAgent):
             instance.replay_buffer.load(replay_buffer_path)
 
         return instance
-
-
-###############################################################################
-
-def _build_ac(observation_space, action_space,
-              actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs):
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor.load_state_dict(actor.state_dict())
-    target_actor.eval()
-
-    critic_1 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1.load_state_dict(critic_1.state_dict())
-    target_critic_1.eval()
-
-    critic_2 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2.load_state_dict(critic_2.state_dict())
-    target_critic_2.eval()
-
-    return ((actor, target_actor),
-            (critic_1, target_critic_1),
-            (critic_2, target_critic_2))

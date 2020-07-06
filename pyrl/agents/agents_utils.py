@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+"""
+Utility functions to initialize some components from string descriptions,
+as well as functions with code required by more than agent.
+"""
 
 # SciPy
 import numpy as np
@@ -61,7 +63,7 @@ def create_normalizer(name, shape, epsilon=1e-4, clip_range=float('inf')):
     :param shape: Shape of the arrays to normalize.
     """
     if name.lower() == "none":
-        return IdentityNormalizer()
+        return IdentityNormalizer(shape=shape)
 
     try:
         return _NORAMLIZERS[name](
@@ -87,6 +89,10 @@ def dicts_mean(dicts):
 def create_actor(observation_space, action_space,
                  actor_cls=None, actor_kwargs=None,
                  policy="deterministic"):
+    """Initializes an actor for the given observation and action
+    space. If `actor_cls` is not given the created actor is
+    automatically decided using the observation and action
+    shapes, as well as the policy type."""
     is_her = pyrl.util.ugym.is_her_space(observation_space)
     if actor_kwargs is None:
         actor_kwargs = {}
@@ -124,6 +130,11 @@ def create_actor(observation_space, action_space,
 
 def create_critic(observation_space, action_space,
                   critic_cls=None, critic_kwargs=None):
+    """Initializes a critic for the given observation and action
+    space. If `critic_cls` is not given the created critic is
+    automatically decided using the observation and action
+    shapes."""
+
     is_her = pyrl.util.ugym.is_her_space(observation_space)
     if critic_kwargs is None:
         critic_kwargs = {}

@@ -3,9 +3,7 @@
 import collections
 import errno
 import os
-import six.moves.cPickle as pickle
-
-import six
+import pickle
 
 # Scipy
 import numpy as np

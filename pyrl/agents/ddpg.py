@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-locals
+
+"""
+Agent that implements the Deep Deterministic Policy Gradient algorithm.
+"""
 
 import collections
 import errno
@@ -20,12 +25,12 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
+from .agents_utils import (create_action_noise, create_normalizer,
+                           create_actor, create_critic, dicts_mean)
 from .core import Agent
 from .models_utils import soft_update
 from .noise import AdaptiveParamNoiseSpec
 from .replay_buffer import FlatReplayBuffer
-from .utils import (create_action_noise, create_normalizer,
-                    create_actor, create_critic, dicts_mean)
 
 
 ###############################################################################
@@ -37,7 +42,7 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 class DDPG(Agent):
-    """Deep Deterministic Policy Gradients.
+    """Deep Deterministic Policy Gradient.
 
     Introduced in the paper: Continuous Control With Deep Reinforcement
     Learning
@@ -119,11 +124,11 @@ class DDPG(Agent):
             max_size=replay_buffer_size)
 
         # Build model (AC architecture)
-        actors, critics = _build_ac(self.observation_space,
-                                    self.action_space,
-                                    actor_cls, actor_kwargs,
-                                    critic_cls, critic_kwargs,
-                                    parameter_noise)
+        actors, critics = build_ddpg_ac(self.observation_space,
+                                        self.action_space,
+                                        actor_cls, actor_kwargs,
+                                        critic_cls, critic_kwargs,
+                                        parameter_noise)
 
         self.actor, self.target_actor = actors
         self.critic, self.target_critic = critics
@@ -350,14 +355,14 @@ class DDPG(Agent):
                         open(os.path.join(path, "param_noise.pickle"), "wb"))
 
     @classmethod
-    def load(cls, path, replay_buffer=True, **kwargs):
+    def load(cls, path, *args, replay_buffer=True, **kwargs):
         if not os.path.isdir(path):
             raise ValueError("{} is not a directory".format(path))
 
         # Load and Override arguments used to build the instance
-        with open(os.path.join(path, "args.pkl"), "rb") as fh:
+        with open(os.path.join(path, "args.pkl"), "rb") as rfh:
             _LOG.debug("(DDPG) Loading agent arguments")
-            args_values = pickle.load(fh)
+            args_values = pickle.load(rfh)
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
@@ -368,9 +373,9 @@ class DDPG(Agent):
         # Create instance and load the rest of the data
         instance = cls(**args_values)
 
-        with open(os.path.join(path, "state.pkl"), "rb") as fh:
+        with open(os.path.join(path, "state.pkl"), "rb") as rfh:
             _LOG.debug("(DDPG) Loading agent state")
-            state = pickle.load(fh)
+            state = pickle.load(rfh)
             instance.load_state_dict(state)
 
         replay_buffer_path = os.path.join(path, "replay_buffer.h5")
@@ -406,8 +411,9 @@ class DDPG(Agent):
 #
 ###############################################################################
 
-def _build_ac(observation_space, action_space, actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs, parameter_noise):
+def build_ddpg_ac(observation_space, action_space, actor_cls, actor_kwargs,
+                  critic_cls, critic_kwargs, parameter_noise):
+    """Builds the actor-critic architecture for the DDPG algorithm."""
     if parameter_noise:
         actor_kwargs["layer_norm"] = True
 
@@ -434,8 +440,7 @@ def _perturb_actor(actor, perturbed_actor, param_noise_std):
 
     a_params = actor.named_parameters()
     p_params = perturbed_actor.named_parameters()
-    for (a_name, a_param), (p_name, p_param) in six.moves.zip(a_params,
-                                                              p_params):
+    for (a_name, a_param), (p_name, p_param) in zip(a_params, p_params):
         assert a_name == p_name
         if a_name in perturbable_params:
             noise = torch.normal(mean=0, std=param_noise_std,

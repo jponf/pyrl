@@ -60,6 +60,10 @@ class TwinnedCritic(nn.Module):
     def forward(self, states, actions):
         return self.c1(states, actions), self.c2(states, actions)
 
+    def min(self, states, actions):
+        """Takes the minimum of each critic output."""
+        return torch.min(self.c1(states, actions), self.c2(states, actions))
+
 
 class ActorMLP(nn.Module):
     """Deterministic actor implemented as a Multi-layer Perceptron."""
