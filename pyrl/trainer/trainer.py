@@ -164,8 +164,8 @@ class AgentTrainer(object):
                                     to_run)
             agent_states.extend(states)
 
-            for x in to_run:
-                done[x.trainer_id] = True
+            for trainer in to_run:
+                done[trainer.trainer_id] = True
 
         _LOG.debug("Updating master agent")
         if len(agent_states) > 1:

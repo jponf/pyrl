@@ -33,7 +33,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
-@click.command(name="her-td3-train")
+@click.command(name="her-sac-train")
 @click.argument("environment", type=str)
 @click.option("--num-epochs", type=int, default=20)
 @click.option("--num-cycles", type=int, default=50)
@@ -43,17 +43,14 @@ _LOG = pyrl.util.logging.get_logger()
 @click.option("--num-cpus", type=int, default=1)
 @click.option("--demo-path", type=click.Path(exists=True, file_okay=True),
               required=False, help="Path to the file with demonstration runs.")
-@click.option("--eps-greedy", type=float, default=0.2)
 @click.option("--reward-scale", type=float, default=1.0)
 @click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--policy-delay", type=int, default=2)
 @click.option("--random-steps", type=int, default=1500)
 @click.option("--replay-k", type=int, default=4,
               help="The ratio between HER replays and regular replays,"
                    " e.g. k = 4 -> 4 times as many HER replays as regular"
                    " replays.")
 @click.option("--q-filter/--no-q-filter", default=False)
-@click.option("--action-noise", type=str, default="ou_0.2")
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
               default="standard", help="If set to none, the observations "
                                        "won't be normalized")
@@ -62,9 +59,9 @@ _LOG = pyrl.util.logging.get_logger()
                    " being normalized.")
 @click.option("--render/--no-render", default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/her-td3")
+@click.option("--save", type=click.Path(), default="checkpoints/her-sac")
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_her_td3_train(environment,
+def cli_her_sac_train(environment,
                       num_epochs,
                       num_cycles,
                       num_episodes,
@@ -72,21 +69,18 @@ def cli_her_td3_train(environment,
                       num_evals,
                       num_cpus,
                       demo_path,
-                      eps_greedy,
                       reward_scale,
                       replay_buffer,
-                      policy_delay,
                       random_steps,
                       replay_k,
                       q_filter,
-                      action_noise,
                       obs_normalizer,
                       obs_clip,
                       render,
                       load, save, seed):
-    """Trains a HER + TD3 agent on an OpenAI's gym environment."""
+    """Trains a HER + SAC agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.HerTD3, env_name=environment,
+        agent_cls=pyrl.agents.HerSAC, env_name=environment,
         seed=seed, num_envs=num_envs, num_cpus=num_cpus,
         root_log_dir=os.path.join(save, "log"))
 
@@ -100,7 +94,6 @@ def cli_her_td3_train(environment,
         _LOG.info("Initializing new agent")
         env = trainer.env
         agent_kwargs = dict(
-            eps_greedy=eps_greedy,
             gamma=1.0 - 1.0 / env.spec.max_episode_steps,
             tau=0.005,
             batch_size=128,
@@ -108,16 +101,14 @@ def cli_her_td3_train(environment,
             replay_buffer_episodes=int(math.ceil(replay_buffer /
                                                  env.spec.max_episode_steps)),
             replay_buffer_steps=env.spec.max_episode_steps,
-            policy_delay=policy_delay,
             random_steps=random_steps,
             replay_k=replay_k,
             demo_batch_size=128,
             q_filter=q_filter,
-            actor_lr=3e-4,
-            critic_lr=3e-4,
+            actor_lr=1e-3,
+            critic_lr=1e-3,
             observation_normalizer=obs_normalizer,
-            observation_clip=obs_clip,
-            action_noise=action_noise)
+            observation_clip=obs_clip)
         trainer.initialize_agent(agent_kwargs=agent_kwargs,
                                  demo_path=demo_path)
 
@@ -185,22 +176,22 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 
 ###############################################################################
 
-@click.command("her-td3-test")
+@click.command("her-sac-test")
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
 @click.option("--pause/--no-pause", default=False,
               help="Pause (or not) before running an episode.")
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_her_td3_test(environment, agent_path, num_episodes, pause, seed):
-    """Runs a previosly trained HER+TD3 agent on a gym environment."""
+def cli_her_sac_test(environment, agent_path, num_episodes, pause, seed):
+    """Runs a previosly trained HER + SAC agent on a gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = gym.make(environment)
     pyrl.cli.util.initialize_seed(seed)
     env.seed(seed)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = pyrl.agents.HerTD3.load(agent_path, env,
+    agent = pyrl.agents.HerSAC.load(agent_path, env,
                                     replay_buffer=False)
     agent.set_eval_mode()
 

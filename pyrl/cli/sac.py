@@ -121,7 +121,7 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
         for epoch in six.moves.range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
             trainer.agent.set_train_mode()
-            _run_train_epoch(trainer, epoch, num_episodes, save_path)
+            _run_train_epoch(trainer, epoch, num_episodes)
 
             save_start_time = time.time()
             trainer.agent.save(save_path, replay_buffer=True)
@@ -133,14 +133,14 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
             _evaluate(trainer.agent, trainer.env, num_evals, render=False)
         # End epochs
     except KeyboardInterrupt:
-        _LOG.warn("Exiting due to keyboard interruption")
+        _LOG.warning("Exiting due to keyboard interruption")
     finally:
         _LOG.info("Saving agent before exiting")
         trainer.agent.save(save_path, replay_buffer=True)
         trainer.env.close()
 
 
-def _run_train_epoch(trainer, epoch, num_episodes, save_path):
+def _run_train_epoch(trainer, epoch, num_episodes):
     for episode in six.moves.range(1, num_episodes + 1):
         episode_start_time = time.time()
         _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]",
@@ -155,10 +155,8 @@ def _run_train_epoch(trainer, epoch, num_episodes, save_path):
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
 @click.option("--num-episodes", type=int, default=5)
-@click.option("--pause/--no-pause", default=False,
-              help="Pause (or not) before running an episode.")
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_sac_test(environment, agent_path, num_episodes, pause, seed):
+def cli_sac_test(environment, agent_path, num_episodes, seed):
     """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = pyrl.util.ugym.make_flat(environment)
@@ -194,7 +192,7 @@ def _evaluate(agent, env, num_evals, render):
     all_rewards = []
 
     for _ in six.moves.range(num_evals):
-        rewards, infos, done = pyrl.cli.util.evaluate(
+        rewards, _, done = pyrl.cli.util.evaluate(
             agent, env, env.spec.max_episode_steps, render)
 
         all_rewards.append(rewards)

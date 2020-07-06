@@ -16,6 +16,7 @@ import pyrl.util.logging
 import pyrl.cli.ddpg
 import pyrl.cli.her_ddpg
 import pyrl.cli.sac
+import pyrl.cli.her_sac
 import pyrl.cli.td3
 import pyrl.cli.her_td3
 import pyrl.cli.list_envs
@@ -71,6 +72,8 @@ def run_main():
 
     main.add_command(pyrl.cli.sac.cli_sac_train)
     main.add_command(pyrl.cli.sac.cli_sac_test)
+    main.add_command(pyrl.cli.her_sac.cli_her_sac_train)
+    main.add_command(pyrl.cli.her_sac.cli_her_sac_test)
 
     main.add_command(pyrl.cli.td3.cli_td3_train)
     main.add_command(pyrl.cli.td3.cli_td3_test)
@@ -78,6 +81,7 @@ def run_main():
     main.add_command(pyrl.cli.her_td3.cli_her_td3_train)
     main.add_command(pyrl.cli.her_td3.cli_her_td3_test)
 
+    # pylint: disable=unexpected-keyword-arg, no-value-for-parameter
     main(prog_name="torchrl")
 
 

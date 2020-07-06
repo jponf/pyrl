@@ -26,7 +26,8 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
-from .agents_utils import create_action_noise, create_normalizer, dicts_mean
+from .agents_utils import (create_action_noise, create_normalizer,
+                           dicts_mean, load_her_demonstrations)
 from .core import HerAgent
 from .ddpg import build_ddpg_ac
 from .models_utils import soft_update
@@ -196,34 +197,9 @@ class HerDDPG(HerAgent):
     ##########################
 
     def load_demonstrations(self, demo_path):
-        demos = np.load(demo_path, allow_pickle=True)
-        d_obs, d_acs, d_info = demos["obs"], demos["acs"], demos["info"]
-        num_episodes = min(len(d_obs), len(d_acs), len(d_info))
-
-        buffer = HerReplayBuffer(
-            obs_shape=self.replay_buffer.obs_shape,
-            goal_shape=self.replay_buffer.goal_shape,
-            action_shape=self.replay_buffer.action_shape,
-            max_episodes=num_episodes, max_steps=self.replay_buffer.max_steps)
-
-        for obs, acs, infos in zip(d_obs, d_acs, d_info):
-            if len(acs) > buffer.max_steps:  # too many steps, ignore
-                continue
-
-            states, next_states = obs[:-1], obs[1:]
-            transitions = zip(states, acs, next_states, infos)
-            for state, action, next_state, info in transitions:
-                reward = self.env.compute_reward(next_state["achieved_goal"],
-                                                 next_state["desired_goal"],
-                                                 info)
-                buffer.add(obs=state["observation"],
-                           action=self._to_actor_space(action),
-                           next_obs=next_state["observation"],
-                           reward=reward,
-                           terminal=info.get("is_success", False),
-                           goal=next_state["desired_goal"],
-                           achieved_goal=next_state["achieved_goal"])
-            buffer.save_episode()
+        buffer = load_her_demonstrations(
+            demo_path, env=self.env, action_fn=self._to_actor_space,
+            max_steps=self.replay_buffer.max_steps)
 
         _LOG.debug("(HER-DDPG) Loaded Demonstrations")
         _LOG.debug("(HER-DDPG)     = Num. Episodes: %d", buffer.num_episodes)
@@ -248,6 +224,7 @@ class HerDDPG(HerAgent):
         self.action_noise.reset()
 
     def end_episode(self):
+        super(HerDDPG, self).end_episode()
         self.replay_buffer.save_episode()
 
     def update(self, state, action, reward, next_state, terminal):

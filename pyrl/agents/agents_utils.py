@@ -11,9 +11,10 @@ import numpy as np
 # ...
 import pyrl.util.ugym
 from .models import (ActorMLP, GaussianActorMLP, CriticMLP,
-                     HerActorMLP, HerCriticMLP)
+                     HerActorMLP, HerGaussianActorMLP, HerCriticMLP)
 from .noise import NullActionNoise, NormalActionNoise, OUActionNoise
 from .preprocessing import IdentityNormalizer, StandardNormalizer
+from .replay_buffer import HerReplayBuffer
 
 
 ###############################################################################
@@ -109,7 +110,10 @@ def create_actor(observation_space, action_space,
         goal_dim = len(observation_space["desired_goal"].shape)
         action_dim = len(action_space.shape)
         if obs_dim == 1 and goal_dim == 1 and action_dim == 1:
-            actor = HerActorMLP(**actor_kwargs)
+            if policy == "deterministic":
+                actor = HerActorMLP(**actor_kwargs)
+            elif policy == "gaussian":
+                return HerGaussianActorMLP(**actor_kwargs)
     # Normal actor
     else:
         obs_dim = len(observation_space.shape)
@@ -120,7 +124,7 @@ def create_actor(observation_space, action_space,
             elif policy == "gaussian":
                 actor = GaussianActorMLP(**actor_kwargs)
 
-    if actor is None:  # TODO: CriticConv
+    if actor is None:
         raise ValueError("Unknown actor type for observation space"
                          " {}, action space {} and policy {}"
                          .format(observation_space, action_space, policy))
@@ -157,9 +161,52 @@ def create_critic(observation_space, action_space,
         if obs_dim == 1 and action_dim == 1:
             critic = CriticMLP(**critic_kwargs)
 
-    if critic is None:  # TODO: CriticConv
+    if critic is None:
         raise ValueError("Unknown critic type for observation space"
                          " {} and action space {}".format(observation_space,
                                                           action_space))
 
     return critic
+
+
+def load_her_demonstrations(demo_path, env, max_steps,
+                            action_fn):
+    """Loads demonstrations from the file pointed by `demo_path`. The
+    demonstrations are expected to use the state structure expected by HER
+    and must be stored in a numpy file with fields 'obs', 'acs' and 'info'
+    for the states, the actions and additional information respectivelys.
+    """
+    demos = np.load(demo_path, allow_pickle=True)
+    d_obs, d_acs, d_info = demos["obs"], demos["acs"], demos["info"]
+    num_episodes = min(len(d_obs), len(d_acs), len(d_info))
+
+    buffer = HerReplayBuffer(
+        obs_shape=env.observation_space["observation"].shape,
+        goal_shape=env.observation_space["desired_goal"].shape,
+        action_shape=env.action_space.shape,
+        max_episodes=num_episodes,
+        max_steps=max_steps)
+
+    for obs, acs, infos in zip(d_obs, d_acs, d_info):
+        if len(acs) > buffer.max_steps:  # too many steps, ignore
+            continue
+
+        states, next_states = obs[:-1], obs[1:]
+        transitions = zip(states, acs, next_states, infos)
+        for state, action, next_state, info in transitions:
+            reward = env.compute_reward(next_state["achieved_goal"],
+                                        next_state["desired_goal"],
+                                        info)
+            if action_fn is not None:
+                action = action_fn(action)
+
+            buffer.add(obs=state["observation"],
+                       action=action,
+                       next_obs=next_state["observation"],
+                       reward=reward,
+                       terminal=info.get("is_success", False),
+                       goal=next_state["desired_goal"],
+                       achieved_goal=next_state["achieved_goal"])
+        buffer.save_episode()
+
+    return buffer

@@ -124,10 +124,10 @@ class SAC(Agent):
         self.random_steps = random_steps
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = _build_ac(self.observation_space,
-                                                 self.action_space,
-                                                 actor_cls, actor_kwargs,
-                                                 critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_sac_ac(self.observation_space,
+                                                    self.action_space,
+                                                    actor_cls, actor_kwargs,
+                                                    critic_cls, critic_kwargs)
 
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
@@ -170,18 +170,15 @@ class SAC(Agent):
         with torch.no_grad():
             return self._log_alpha.exp()
 
+    # BaseAgent methods
+    ##########################
+
     def set_train_mode(self, mode=True):
         """Sets the agent training mode."""
         super(SAC, self).set_train_mode(mode)
         self.actor.train(mode=mode)
         self.critic_1.train(mode=mode)
         self.critic_2.train(mode=mode)
-
-    def begin_episode(self):
-        pass
-
-    def end_episode(self):
-        pass
 
     def update(self, state, action, reward, next_state, terminal):
         self._total_steps += 1
@@ -227,7 +224,6 @@ class SAC(Agent):
         self._update_target_networks()
 
     def _train_critic(self, state, action, next_state, reward, terminal):
-        # Compute critic loss (with smoothing noise)
         with torch.no_grad():
             next_action, next_log_p, _ = self.target_actor.sample(next_state)
 
@@ -439,9 +435,10 @@ class SAC(Agent):
 #
 ###############################################################################
 
-def _build_ac(observation_space, action_space,
-              actor_cls, actor_kwargs,
-              critic_cls, critic_kwargs):
+def build_sac_ac(observation_space, action_space,
+                 actor_cls, actor_kwargs,
+                 critic_cls, critic_kwargs):
+    """Builds the actor-critic architecture for the SAC algorithm."""
     actor = create_actor(observation_space, action_space,
                          actor_cls, actor_kwargs,
                          policy="gaussian").to(_DEVICE)

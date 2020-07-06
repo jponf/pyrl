@@ -45,7 +45,7 @@ class CriticMLP(nn.Module):
             activation=activation,
             last_activation=None)
 
-    def forward(self, states, actions):
+    def forward(self, states, actions):  # pylint: disable=arguments-differ
         return self.network(torch.cat((states, actions), dim=1))
 
 
@@ -54,10 +54,10 @@ class TwinnedCritic(nn.Module):
 
     def __init__(self, critic1, critic2):
         super(TwinnedCritic, self).__init__()
-        self.c1 = critic1
-        self.c2 = critic2
+        self.c1 = critic1  # pylint: disable=invalid-name
+        self.c2 = critic2  # pylint: disable=invalid-name
 
-    def forward(self, states, actions):
+    def forward(self, states, actions):  # pylint: disable=arguments-differ
         return self.c1(states, actions), self.c2(states, actions)
 
     def min(self, states, actions):
@@ -70,8 +70,7 @@ class ActorMLP(nn.Module):
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
-                 activation="relu",
-                 layer_norm=False):
+                 activation="relu", layer_norm=False):
         assert hidden_layers >= 0
         assert hidden_size > 0
         super(ActorMLP, self).__init__()
@@ -101,7 +100,7 @@ class ActorMLP(nn.Module):
             activation=activation,
             last_activation="tanh")
 
-    def forward(self, states):
+    def forward(self, states):  # pylint: disable=arguments-differ
         return self.network(states)
 
     def get_perturbable_parameters(self):
@@ -151,7 +150,7 @@ class GaussianActorMLP(nn.Module):
         self.log_std_min = log_std_min
         self.epsilon = epsilon
 
-    def forward(self, states):
+    def forward(self, states):  # pylint: disable=arguments-differ
         mean, log_std = torch.chunk(self.network(states), 2, dim=-1)
         log_std.clamp_(min=self.log_std_min, max=self.log_std_max)
         return mean, log_std
@@ -209,25 +208,25 @@ class HerCriticMLP(CriticMLP):
                                            activation, layer_norm,
                                            *args, **kwargs)
 
+    # pylint: disable=arguments-differ
     def forward(self, obs, goals, actions):
         return super(HerCriticMLP, self).forward(
             states=torch.cat((obs, goals), dim=1), actions=actions)
 
 
-class HerActorMLP(ActorMLP):
-    """Utility wrapper to use the `Actor` class in Hindsigh
+class HerActorMLP(nn.Module):
+    """Utility wrapper to use the `ActorMLP` class in Hindsigh
     Expirience Replay (HER) agents.
 
-    The __init__ signature is the same as that of the `Actor`
+    The __init__ signature is the same as that of the `ActorMLP`
     class, since all the arguments given to this class __init__
-    are forwarded to the `Actor.__init__`.
+    are forwarded to the `ActorMLP.__init__`.
     """
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
-                 activation="relu",
-                 layer_norm=False,
-                 *args, **kwargs):
+                 activation="relu", layer_norm=False,):
+        super(HerActorMLP, self).__init__(self)
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay actor expects a"
                             " gym.spaces.Dict observation space")
@@ -239,11 +238,59 @@ class HerActorMLP(ActorMLP):
             high=np.concatenate((obs_space.high, goal_space.high)),
             dtype=obs_space.dtype)
 
-        super(HerActorMLP, self).__init__(flat_obs_space, action_space,
-                                          hidden_layers, hidden_size,
-                                          activation, layer_norm,
-                                          *args, **kwargs)
+        self._policy = ActorMLP(flat_obs_space, action_space,
+                                hidden_layers, hidden_size,
+                                activation, layer_norm)
 
-    def forward(self, obs, goals):
-        return super(HerActorMLP, self).forward(
-            states=torch.cat((obs, goals), dim=1))
+    @property
+    def action_space(self):
+        """Actor action space."""
+        return self._policy.action_space
+
+    def forward(self, obs, goals):  # pylint: disable=arguments-differ
+        return self._policy(stats=torch.cat((obs, goals), dim=1))
+
+
+class HerGaussianActorMLP(nn.Module):
+    """Utility wrapper to use the `GaussianActorMLP` class in Hindsigh
+    Expirience Replay (HER) agents.
+
+    The __init__ signature is the same as that of the `GaussianActorMLP`
+    class, since all the arguments given to this class __init__
+    are forwarded to the `ActorMLP.__init__`.
+    """
+
+    def __init__(self, observation_space, action_space,
+                 hidden_layers=3, hidden_size=256,
+                 activation="relu", layer_norm=False,
+                 log_std_max=10, log_std_min=-20,
+                 epsilon=1e-6):
+        super(HerGaussianActorMLP, self).__init__()
+        if not isinstance(observation_space, gym.spaces.Dict):
+            raise TypeError("Hindsight Experience Replay actor expects a"
+                            " gym.spaces.Dict observation space")
+
+        obs_space = observation_space['observation']
+        goal_space = observation_space['desired_goal']
+        flat_obs_space = gym.spaces.Box(
+            low=np.concatenate((obs_space.low, goal_space.low)),
+            high=np.concatenate((obs_space.high, goal_space.high)),
+            dtype=obs_space.dtype)
+
+        self._policy = GaussianActorMLP(
+            observation_space=flat_obs_space, action_space=action_space,
+            hidden_layers=hidden_layers, hidden_size=hidden_size,
+            activation=activation, layer_norm=layer_norm,
+            log_std_max=log_std_max, log_std_min=log_std_min,
+            epsilon=epsilon)
+
+    @property
+    def action_space(self):
+        """Actor action space."""
+        return self._policy.action_space
+
+    def forward(self, obs, goal):  # pylint: disable=arguments-differ
+        return self._policy.forward(torch.cat((obs, goal), dim=1))
+
+    def sample(self, obs, goal):
+        return self._policy.sample(states=torch.cat((obs, goal), dim=1))
