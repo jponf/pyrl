@@ -10,8 +10,8 @@ import numpy as np
 
 # ...
 import pyrl.util.ugym
-from .models import (ActorMLP, GaussianActorMLP, CriticMLP,
-                     HerActorMLP, HerGaussianActorMLP, HerCriticMLP)
+from .models import (PolicyMLP, GaussianPolicyMLP, CriticMLP,
+                     HerPolicyMLP, HerGaussianPolicyMLP, HerCriticMLP)
 from .noise import NullActionNoise, NormalActionNoise, OUActionNoise
 from .preprocessing import IdentityNormalizer, StandardNormalizer
 from .replay_buffer import HerReplayBuffer
@@ -111,18 +111,18 @@ def create_actor(observation_space, action_space,
         action_dim = len(action_space.shape)
         if obs_dim == 1 and goal_dim == 1 and action_dim == 1:
             if policy == "deterministic":
-                actor = HerActorMLP(**actor_kwargs)
+                actor = HerPolicyMLP(**actor_kwargs)
             elif policy == "gaussian":
-                return HerGaussianActorMLP(**actor_kwargs)
+                return HerGaussianPolicyMLP(**actor_kwargs)
     # Normal actor
     else:
         obs_dim = len(observation_space.shape)
         action_dim = len(action_space.shape)
         if obs_dim == 1 and action_dim == 1:
             if policy == "deterministic":
-                actor = ActorMLP(**actor_kwargs)
+                actor = PolicyMLP(**actor_kwargs)
             elif policy == "gaussian":
-                actor = GaussianActorMLP(**actor_kwargs)
+                actor = GaussianPolicyMLP(**actor_kwargs)
 
     if actor is None:
         raise ValueError("Unknown actor type for observation space"

@@ -65,7 +65,7 @@ class TwinnedCritic(nn.Module):
         return torch.min(self.c1(states, actions), self.c2(states, actions))
 
 
-class ActorMLP(nn.Module):
+class PolicyMLP(nn.Module):
     """Deterministic actor implemented as a Multi-layer Perceptron."""
 
     def __init__(self, observation_space, action_space,
@@ -73,7 +73,7 @@ class ActorMLP(nn.Module):
                  activation="relu", layer_norm=False):
         assert hidden_layers >= 0
         assert hidden_size > 0
-        super(ActorMLP, self).__init__()
+        super(PolicyMLP, self).__init__()
 
         if len(observation_space.shape) > 1:
             raise ValueError('MLP observation space must have a single'
@@ -108,16 +108,16 @@ class ActorMLP(nn.Module):
                 if 'norm' not in x]
 
 
-class GaussianActorMLP(nn.Module):
+class GaussianPolicyMLP(nn.Module):
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,
-                 log_std_max=10, log_std_min=-20,
+                 log_std_max=2, log_std_min=-20,
                  epsilon=1e-6):
         assert hidden_layers >= 0
         assert hidden_size > 0
-        super(GaussianActorMLP, self).__init__()
+        super(GaussianPolicyMLP, self).__init__()
 
         if len(observation_space.shape) > 1:
             raise ValueError('MLP observation space must have a single'
@@ -167,14 +167,14 @@ class GaussianActorMLP(nn.Module):
         normal = torch.distributions.Normal(means, stds)
 
         r_sample = normal.rsample()  # reparameterization trick
-        rand_actions = torch.tanh(r_sample)
+        actions = torch.tanh(r_sample)
 
         # likelihood of the bounded actions (by tanh)
         log_prob = normal.log_prob(r_sample)
-        log_prob -= torch.log(1 - rand_actions.pow(2) + self.epsilon)
+        log_prob -= torch.log(1 - actions.pow(2) + self.epsilon)
         log_prob = log_prob.sum(dim=1, keepdim=True)
 
-        return rand_actions, log_prob, torch.tanh(means)
+        return actions, log_prob
 
 
 ###############################################################################
@@ -214,19 +214,19 @@ class HerCriticMLP(CriticMLP):
             states=torch.cat((obs, goals), dim=1), actions=actions)
 
 
-class HerActorMLP(nn.Module):
-    """Utility wrapper to use the `ActorMLP` class in Hindsigh
+class HerPolicyMLP(nn.Module):
+    """Utility wrapper to use the `PolicyMLP` class in Hindsigh
     Expirience Replay (HER) agents.
 
-    The __init__ signature is the same as that of the `ActorMLP`
+    The __init__ signature is the same as that of the `PolicyMLP`
     class, since all the arguments given to this class __init__
-    are forwarded to the `ActorMLP.__init__`.
+    are forwarded to the `PolicyMLP.__init__`.
     """
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,):
-        super(HerActorMLP, self).__init__(self)
+        super(HerPolicyMLP, self).__init__(self)
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay actor expects a"
                             " gym.spaces.Dict observation space")
@@ -238,9 +238,9 @@ class HerActorMLP(nn.Module):
             high=np.concatenate((obs_space.high, goal_space.high)),
             dtype=obs_space.dtype)
 
-        self._policy = ActorMLP(flat_obs_space, action_space,
-                                hidden_layers, hidden_size,
-                                activation, layer_norm)
+        self._policy = PolicyMLP(flat_obs_space, action_space,
+                                 hidden_layers, hidden_size,
+                                 activation, layer_norm)
 
     @property
     def action_space(self):
@@ -251,21 +251,21 @@ class HerActorMLP(nn.Module):
         return self._policy(stats=torch.cat((obs, goals), dim=1))
 
 
-class HerGaussianActorMLP(nn.Module):
-    """Utility wrapper to use the `GaussianActorMLP` class in Hindsigh
+class HerGaussianPolicyMLP(nn.Module):
+    """Utility wrapper to use the `GaussianPolicyMLP` class in Hindsigh
     Expirience Replay (HER) agents.
 
-    The __init__ signature is the same as that of the `GaussianActorMLP`
+    The __init__ signature is the same as that of the `GaussianPolicyMLP`
     class, since all the arguments given to this class __init__
-    are forwarded to the `ActorMLP.__init__`.
+    are forwarded to the `PolicyMLP.__init__`.
     """
 
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,
-                 log_std_max=10, log_std_min=-20,
+                 log_std_max=2, log_std_min=-20,
                  epsilon=1e-6):
-        super(HerGaussianActorMLP, self).__init__()
+        super(HerGaussianPolicyMLP, self).__init__()
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay actor expects a"
                             " gym.spaces.Dict observation space")
@@ -277,7 +277,7 @@ class HerGaussianActorMLP(nn.Module):
             high=np.concatenate((obs_space.high, goal_space.high)),
             dtype=obs_space.dtype)
 
-        self._policy = GaussianActorMLP(
+        self._policy = GaussianPolicyMLP(
             observation_space=flat_obs_space, action_space=action_space,
             hidden_layers=hidden_layers, hidden_size=hidden_size,
             activation=activation, layer_norm=layer_norm,

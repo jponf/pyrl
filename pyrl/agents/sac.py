@@ -200,10 +200,9 @@ class SAC(Agent):
         state = self.obs_normalizer.transform(state).unsqueeze_(0).to(_DEVICE)
 
         # Compute action
-        rand_action, _, mean_action = self.actor.sample(state)
-
-        action = rand_action if self._train_mode else mean_action
+        action, _ = self.actor.sample(state)
         action = action.squeeze_(0).cpu().numpy()
+
         return self._to_action_space(action)
 
     def train(self, steps, progress=False):
@@ -211,57 +210,57 @@ class SAC(Agent):
             super(SAC, self).train(steps, progress)
 
     def _train(self):
-        (state, action, next_state,
-         reward, terminal) = self.replay_buffer.sample_batch_torch(
+        (states, actions, next_states,
+         rewards, terminals) = self.replay_buffer.sample_batch_torch(
              self.batch_size, device=_DEVICE)
 
-        next_state = self.obs_normalizer.transform(next_state)
-        state = self.obs_normalizer.transform(state)
+        next_states = self.obs_normalizer.transform(next_states)
+        states = self.obs_normalizer.transform(states)
 
-        self._train_critic(state, action, next_state, reward, terminal)
-        log_prob = self._train_policy(state)
-        self._train_alpha(log_prob)
+        self._train_critic(states, actions, next_states, rewards, terminals)
+        self._train_policy(states)
+        self._train_alpha(states)
         self._update_target_networks()
 
-    def _train_critic(self, state, action, next_state, reward, terminal):
+    def _train_critic(self, states, actions, next_states, rewards, terminals):
         with torch.no_grad():
-            next_action, next_log_p, _ = self.target_actor.sample(next_state)
+            next_action, next_log_pi = self.target_actor.sample(next_states)
 
-            next_q1 = self.target_critic_1(next_state, next_action)
-            next_q2 = self.target_critic_2(next_state, next_action)
+            next_q1 = self.target_critic_1(next_states, next_action)
+            next_q2 = self.target_critic_2(next_states, next_action)
 
-            next_q = torch.min(next_q1, next_q2) - self.alpha * next_log_p
-            next_q *= (1 - terminal.int()) * self.gamma
-            next_q += self.reward_scale * reward
+            next_q = torch.min(next_q1, next_q2) - self.alpha * next_log_pi
+            next_q *= (1 - terminals.int()) * self.gamma
+            next_q += self.reward_scale * rewards
 
         # Optimize critics
-        current_q1 = self.critic_1(state, action)
-        loss_q1 = F.smooth_l1_loss(current_q1, next_q)
+        curr_q1 = self.critic_1(states, actions)
+        loss_q1 = F.smooth_l1_loss(curr_q1, next_q)
         self.critic_1_optimizer.zero_grad()
         loss_q1.backward()
         self.critic_1_optimizer.step()
 
-        current_q2 = self.critic_2(state, action)
-        loss_q2 = F.smooth_l1_loss(current_q2, next_q)
+        curr_q2 = self.critic_2(states, actions)
+        loss_q2 = F.smooth_l1_loss(curr_q2, next_q)
         self.critic_2_optimizer.zero_grad()
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
         with torch.no_grad():
-            self._summary.add_scalars("Q", {"Mean_Q1": current_q1.mean(),
-                                            "Mean_Q2": current_q2.mean(),
+            self._summary.add_scalars("Q", {"Mean_Q1": curr_q1.mean(),
+                                            "Mean_Q2": curr_q2.mean(),
                                             "Mean_Target": next_q.mean()},
                                       self._train_steps)
             self._summary.add_scalar("Loss/Q1", loss_q1, self._train_steps)
             self._summary.add_scalar("Loss/Q2", loss_q2, self._train_steps)
 
-    def _train_policy(self, state):
-        actor_out, log_prob, _ = self.actor.sample(state)
-        min_q = torch.min(self.critic_1(state, actor_out),
-                          self.critic_2(state, actor_out))
+    def _train_policy(self, states):
+        actor_out, log_pi = self.actor.sample(states)
+        min_q = torch.min(self.critic_1(states, actor_out),
+                          self.critic_2(states, actor_out))
 
         # Jπ = 𝔼st∼D,εt∼N[α * log π(f(εt;st)|st) − Q(st,f(εt;st))]
-        loss_a = (self.alpha * log_prob - min_q).mean()
+        loss_a = (self.alpha * log_pi - min_q).mean()
 
         self.actor_optimizer.zero_grad()
         loss_a.backward(retain_graph=True)
@@ -269,16 +268,16 @@ class SAC(Agent):
 
         with torch.no_grad():
             self._summary.add_scalar("Loss/Policy", loss_a, self._train_steps)
-            self._summary.add_scalar("Stats/LogProb", log_prob.mean(),
+            self._summary.add_scalar("Stats/LogProb", log_pi.mean(),
                                      self._train_steps)
             self._summary.add_scalar("Stats/Alpha", self.alpha,
                                      self._train_steps)
-        return log_prob
 
-    def _train_alpha(self, log_prob):
+    def _train_alpha(self, states):
         if self._alpha_optim is not None:
-            alpha_loss = -(log_prob + self.target_entropy).detach().mean()
-            alpha_loss *= self._log_alpha.exp()
+            _, log_pi = self.actor.sample(states)
+            alpha_loss = (self._log_alpha *
+                          (-log_pi - self.target_entropy).detach()).mean()
 
             self._alpha_optim.zero_grad()
             alpha_loss.backward()
