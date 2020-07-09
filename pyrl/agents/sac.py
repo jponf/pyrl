@@ -124,14 +124,11 @@ class SAC(Agent):
         self.random_steps = random_steps
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = build_sac_ac(self.observation_space,
-                                                    self.action_space,
-                                                    actor_cls, actor_kwargs,
-                                                    critic_cls, critic_kwargs)
-
-        self.actor, self.target_actor = actors
-        self.critic_1, self.target_critic_1 = critics_1
-        self.critic_2, self.target_critic_2 = critics_2
+        (self.actor,
+         (self.critic_1, self.target_critic_1),
+         (self.critic_2, self.target_critic_2)) = build_sac_ac(
+             self.observation_space, self.action_space,
+             actor_cls, actor_kwargs, critic_cls, critic_kwargs)
 
         self._actor_kwargs = actor_kwargs
         self._actor_lr = actor_lr
@@ -224,7 +221,7 @@ class SAC(Agent):
 
     def _train_critic(self, states, actions, next_states, rewards, terminals):
         with torch.no_grad():
-            next_action, next_log_pi = self.target_actor.sample(next_states)
+            next_action, next_log_pi = self.actor.sample(next_states)
 
             next_q1 = self.target_critic_1(next_states, next_action)
             next_q2 = self.target_critic_2(next_states, next_action)
@@ -276,6 +273,7 @@ class SAC(Agent):
     def _train_alpha(self, states):
         if self._alpha_optim is not None:
             _, log_pi = self.actor.sample(states)
+
             alpha_loss = (self._log_alpha *
                           (-log_pi - self.target_entropy).detach()).mean()
 
@@ -287,7 +285,6 @@ class SAC(Agent):
                 'Loss/Alpha', alpha_loss.detach(), self._train_steps)
 
     def _update_target_networks(self):
-        soft_update(self.actor, self.target_actor, self.tau)
         soft_update(self.critic_1, self.target_critic_1, self.tau)
         soft_update(self.critic_2, self.target_critic_2, self.tau)
 
@@ -311,7 +308,6 @@ class SAC(Agent):
         self.critic_2.load_state_dict(state['critic2'])
         self.target_critic_2.load_state_dict(state['critic2'])
         self.actor.load_state_dict(state["actor"])
-        self.target_actor.load_state_dict(state["actor"])
 
         with torch.no_grad():
             self._log_alpha.copy_(state["log_alpha"])
@@ -332,7 +328,6 @@ class SAC(Agent):
 
         actor_state = dicts_mean([x['actor'] for x in states])
         self.actor.load_state_dict(actor_state)
-        self.target_actor.load_state_dict(actor_state)
 
         with torch.no_grad():
             self._log_alpha.copy_(sum(x["log_alpha"] for x in states))
@@ -441,11 +436,6 @@ def build_sac_ac(observation_space, action_space,
     actor = create_actor(observation_space, action_space,
                          actor_cls, actor_kwargs,
                          policy="gaussian").to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs,
-                                policy="gaussian").to(_DEVICE)
-    target_actor.load_state_dict(actor.state_dict())
-    target_actor.eval()
 
     critic_1 = create_critic(observation_space, action_space,
                              critic_cls, critic_kwargs).to(_DEVICE)
@@ -461,6 +451,6 @@ def build_sac_ac(observation_space, action_space,
     target_critic_2.load_state_dict(critic_2.state_dict())
     target_critic_2.eval()
 
-    return ((actor, target_actor),
+    return (actor,
             (critic_1, target_critic_1),
             (critic_2, target_critic_2))
