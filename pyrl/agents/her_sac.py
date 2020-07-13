@@ -156,14 +156,11 @@ class HerSAC(HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = build_sac_ac(self.env.observation_space,
-                                                    self.env.action_space,
-                                                    actor_cls, actor_kwargs,
-                                                    critic_cls, critic_kwargs)
-
-        self.actor, self.target_actor = actors
-        self.critic_1, self.target_critic_1 = critics_1
-        self.critic_2, self.target_critic_2 = critics_2
+        (self.actor,
+         (self.critic_1, self.target_critic_1),
+         (self.critic_2, self.target_critic_2)) = build_sac_ac(
+             self.env.observation_space, self.env.action_space,
+             actor_cls, actor_kwargs, critic_cls, critic_kwargs)
 
         self._actor_kwargs = actor_kwargs
         self._actor_lr = actor_lr
@@ -262,12 +259,12 @@ class HerSAC(HerAgent):
 
         # Pre-process
         obs = torch.from_numpy(state["observation"]).float()
-        goal = torch.from_numpy(state["desired_goal"]).float()
         obs = self.obs_normalizer.transform(obs).unsqueeze_(0).to(_DEVICE)
+        goal = torch.from_numpy(state["desired_goal"]).float()
         goal = self.goal_normalizer.transform(goal).unsqueeze_(0).to(_DEVICE)
 
         # Compute action
-        action, _ = self.actor.sample(state)
+        action, _ = self.actor.sample(obs, goal)
         action = action.squeeze_(0).cpu().numpy()
 
         return self._to_action_space(action)
@@ -291,7 +288,7 @@ class HerSAC(HerAgent):
 
     def _train_critic(self, obs, action, next_obs, goal, reward, terminal):
         with torch.no_grad():
-            next_action, next_log_pi = self.target_actor.sample(next_obs, goal)
+            next_action, next_log_pi = self.actor.sample(next_obs, goal)
 
             next_q1 = self.target_critic_1(next_obs, goal, next_action)
             next_q2 = self.target_critic_2(next_obs, goal, next_action)
@@ -366,11 +363,11 @@ class HerSAC(HerAgent):
             self._alpha_optim.zero_grad()
             alpha_loss.backward()
             self._alpha_optim.step()
+
             self._summary.add_scalar(
                 'Loss/Alpha', alpha_loss.detach(), self._train_steps)
 
     def _update_target_networks(self):
-        soft_update(self.actor, self.target_actor, self.tau)
         soft_update(self.critic_1, self.target_critic_1, self.tau)
         soft_update(self.critic_2, self.target_critic_2, self.tau)
 
@@ -417,7 +414,6 @@ class HerSAC(HerAgent):
         self.critic_2.load_state_dict(state['critic2'])
         self.target_critic_2.load_state_dict(state['critic2'])
         self.actor.load_state_dict(state["actor"])
-        self.target_actor.load_state_dict(state["actor"])
 
         with torch.no_grad():
             self._log_alpha.copy_(state["log_alpha"])
@@ -438,7 +434,6 @@ class HerSAC(HerAgent):
 
         actor_state = dicts_mean([x['actor'] for x in states])
         self.actor.load_state_dict(actor_state)
-        self.target_actor.load_state_dict(actor_state)
 
         with torch.no_grad():
             self._log_alpha.copy_(sum(x["log_alpha"] for x in states))
