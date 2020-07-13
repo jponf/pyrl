@@ -403,6 +403,7 @@ class HerSAC(HerAgent):
                  "actor": self.actor.state_dict(),
                  "log_alpha": self._log_alpha,
                  "obs_normalizer": self.obs_normalizer.state_dict(),
+                 "goal_normalizer": self.goal_normalizer.state_dict(),
                  "train_steps": self._train_steps,
                  "total_steps": self._total_steps}
 
@@ -419,6 +420,7 @@ class HerSAC(HerAgent):
             self._log_alpha.copy_(state["log_alpha"])
 
         self.obs_normalizer.load_state_dict(state["obs_normalizer"])
+        self.goal_normalizer.load_state_dict(state["goal_normalizer"])
 
         self._train_steps = state["train_steps"]
         self._total_steps = state["total_steps"]
@@ -441,6 +443,8 @@ class HerSAC(HerAgent):
 
         self.obs_normalizer.load_state_dict([x['obs_normalizer']
                                              for x in states])
+        self.goal_normalizer.load_state_dict([x['goal_normalizer']
+                                              for x in states])
 
         self._train_steps = max(x["train_steps"] for x in states)
         self._total_steps = max(x["total_steps"] for x in states)

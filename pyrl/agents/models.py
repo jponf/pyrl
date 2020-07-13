@@ -289,8 +289,8 @@ class HerGaussianPolicyMLP(nn.Module):
         """Actor action space."""
         return self._policy.action_space
 
-    def forward(self, obs, goal):  # pylint: disable=arguments-differ
-        return self._policy.forward(torch.cat((obs, goal), dim=1))
+    def forward(self, obs, goals):  # pylint: disable=arguments-differ
+        return self._policy.forward(torch.cat((obs, goals), dim=1))
 
-    def sample(self, obs, goal):
-        return self._policy.sample(states=torch.cat((obs, goal), dim=1))
+    def sample(self, obs, goals):
+        return self._policy.sample(states=torch.cat((obs, goals), dim=1))

@@ -243,13 +243,13 @@ class SAC(Agent):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        with torch.no_grad():
-            self._summary.add_scalars("Q", {"Mean_Q1": curr_q1.mean(),
-                                            "Mean_Q2": curr_q2.mean(),
-                                            "Mean_Target": next_q.mean()},
-                                      self._train_steps)
-            self._summary.add_scalar("Loss/Q1", loss_q1, self._train_steps)
-            self._summary.add_scalar("Loss/Q2", loss_q2, self._train_steps)
+        # with torch.no_grad():
+        #     self._summary.add_scalars("Q", {"Mean_Q1": curr_q1.mean(),
+        #                                     "Mean_Q2": curr_q2.mean(),
+        #                                     "Mean_Target": next_q.mean()},
+        #                               self._train_steps)
+        #     self._summary.add_scalar("Loss/Q1", loss_q1, self._train_steps)
+        #     self._summary.add_scalar("Loss/Q2", loss_q2, self._train_steps)
 
     def _train_policy(self, states):
         actor_out, log_pi = self.actor.sample(states)
@@ -269,6 +269,13 @@ class SAC(Agent):
                                      self._train_steps)
             self._summary.add_scalar("Stats/Alpha", self.alpha,
                                      self._train_steps)
+
+            means_logs = zip(actor_out.mean(dim=0), log_pi)
+            for i, (mean, log) in enumerate(means_logs):
+                self._summary.add_scalar(f"Action/Mean_{i}", mean,
+                                         self._train_steps)
+                self._summary.add_scalar(f"Action/Prob_{i}", log / len(states),
+                                         self._train_steps)
 
     def _train_alpha(self, states):
         if self._alpha_optim is not None:
