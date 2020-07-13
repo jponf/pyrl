@@ -273,7 +273,6 @@ class SAC(Agent):
     def _train_alpha(self, states):
         if self._alpha_optim is not None:
             _, log_pi = self.actor.sample(states)
-
             alpha_loss = (self._log_alpha *
                           (-log_pi - self.target_entropy).detach()).mean()
 
