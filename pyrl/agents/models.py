@@ -189,9 +189,10 @@ class HerCriticMLP(CriticMLP):
     """
 
     def __init__(self, observation_space, action_space,
+                 *args,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,
-                 *args, **kwargs):
+                 **kwargs):
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay critic expects a"
                             " gym.spaces.Dict observation space")

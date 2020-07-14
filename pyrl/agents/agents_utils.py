@@ -197,6 +197,7 @@ def load_her_demonstrations(demo_path, env, max_steps,
             reward = env.compute_reward(next_state["achieved_goal"],
                                         next_state["desired_goal"],
                                         info)
+
             if action_fn is not None:
                 action = action_fn(action)
 

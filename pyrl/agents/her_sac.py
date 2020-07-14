@@ -283,7 +283,7 @@ class HerSAC(HerAgent):
 
         self._train_critic(obs, action, next_obs, goal, reward, terminal)
         self._train_policy(obs, action, goal, demo_mask)
-        self._train_alpha(obs, goal)
+        self._train_alpha(obs[:self.batch_size], goal[:self.batch_size])
         self._update_target_networks()
 
     def _train_critic(self, obs, action, next_obs, goal, reward, terminal):
