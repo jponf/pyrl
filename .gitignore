@@ -1,6 +1,7 @@
 # Custom excluded directories/files
 temp/
 checkpoints/
+data/
 *.npz
 *.h5
 
