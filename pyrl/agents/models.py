@@ -227,7 +227,7 @@ class HerPolicyMLP(nn.Module):
     def __init__(self, observation_space, action_space,
                  hidden_layers=3, hidden_size=256,
                  activation="relu", layer_norm=False,):
-        super(HerPolicyMLP, self).__init__(self)
+        super(HerPolicyMLP, self).__init__()
         if not isinstance(observation_space, gym.spaces.Dict):
             raise TypeError("Hindsight Experience Replay actor expects a"
                             " gym.spaces.Dict observation space")
@@ -249,7 +249,7 @@ class HerPolicyMLP(nn.Module):
         return self._policy.action_space
 
     def forward(self, obs, goals):  # pylint: disable=arguments-differ
-        return self._policy(stats=torch.cat((obs, goals), dim=1))
+        return self._policy(torch.cat((obs, goals), dim=1))
 
 
 class HerGaussianPolicyMLP(nn.Module):
@@ -294,4 +294,4 @@ class HerGaussianPolicyMLP(nn.Module):
         return self._policy.forward(torch.cat((obs, goals), dim=1))
 
     def sample(self, obs, goals):
-        return self._policy.sample(states=torch.cat((obs, goals), dim=1))
+        return self._policy.sample(torch.cat((obs, goals), dim=1))
