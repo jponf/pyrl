@@ -126,7 +126,7 @@ train and use them.
 ## More Examples
 
  * SAC on *FetchReach* Environment
-   ![SAC on FetchReach GIF](images\gif\her-sac-fetch-reach.gif)
+   ![SAC on FetchReach GIF](images/gif/her-sac-fetch-reach.gif)
  * HER+TD3 on *FetchPickAndPlace* Environment
    **TOOD**
  * HER+SAC on *FetchPickAndPlace* Environment
