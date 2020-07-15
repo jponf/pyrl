@@ -5,7 +5,6 @@ version uses Pytorch ![Pytorch Logo][pytorch-16px], but more frameworks may be s
 
 
 ## Requirements 📋
-------------------
 
 The main requirement is a Python 3 interpreter, preferably 3.5 or newer but
 it should work just as fine with previous versions. If you do not have a
@@ -36,7 +35,6 @@ to install them all.
 
 
 ## Implemented Algorithms
--------------------------
 
 The current version implements the following list of reinforcement learning
 algorithms.
@@ -52,8 +50,8 @@ Additionally, some of them have also been implemented using the [Hindsight
 Experience Replay][her] technique, thereby they can be used in environments
 with sparse rewards. These are: *DDPG*, *TD3* and *SAC*.
 
+
 ## Using the agents in Gym environments ![gym-32px]
----------------------------------------------------
 
 The packages can be run as a Python script using the command `python -m pyrl`,
 by running the package you can choose among different entry points to train/test
@@ -86,10 +84,9 @@ python -m pyrl ddpg-test --help
 
 ![DDPG training on Bipedal Walker GIF](images/gif/ddpg-bipedalwalker-train.gif)
 
-
+**TODO:** Add bipedal walker test GIF.
 
 ## Package structure ![technologist-32px]
---------------------
 
 This package does not have a formal documentation yet, methods are just
 documented within the code. In the meantime, if instead of using the package
@@ -121,6 +118,19 @@ train and use them.
  * *pyrl.util*: Contains routines and classes that can be useful in various
     places.
 
+### Agent Interface
+
+**TODO**
+
+
+## More Examples
+
+ * SAC on *FetchReach* Environment
+   ![SAC on FetchReach GIF](images\gif\her-sac-fetch-reach.gif)
+ * HER+TD3 on *FetchPickAndPlace* Environment
+   **TOOD**
+ * HER+SAC on *FetchPickAndPlace* Environment
+   **TODO**
 
 <!-- ***** References ***** -->
 [ddpg]: https://arxiv.org/abs/1509.02971 "arXiv: Continuous control with deep reinforcement learning"
