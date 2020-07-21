@@ -14,12 +14,15 @@ import errno
 import os
 import pickle
 
-# Torch
+# SciPy
+import numpy as np
+
+# PyTorch
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-# robotrl
+# pyrl
 import pyrl.util.logging
 import pyrl.util.umath as umath
 import pyrl.util.ugym
@@ -28,7 +31,7 @@ from .agents_utils import (create_normalizer, dicts_mean,
                            load_her_demonstrations)
 from .core import HerAgent
 from .models_utils import soft_update
-from .replay_buffer import HerReplayBuffer
+from .replay_buffer import HerBatch, HerReplayBuffer
 from .sac import build_sac_ac
 
 
@@ -53,6 +56,7 @@ class HerSAC(HerAgent):
     def __init__(self,
                  env,
                  alpha=0.2,
+                 eps_greedy=0.2,
                  gamma=.95,
                  tau=0.005,
                  batch_size=128,
@@ -77,7 +81,9 @@ class HerSAC(HerAgent):
                  observation_clip=float('inf')):
         """
         :param env: OpenAI's GoalEnv instance.
-        :param alpha: Entropy coefficient, if None this value is auto-tuned.
+        :param alpha: Initial entropy coefficient value.
+        :param float eps_greedy: Probability of picking a random action
+            in training mode.
         :param gamma: Bellman's discount rate.
         :type gamma: float
         :param tau: Used to perform "soft" updates (polyak averaging) of the
@@ -130,7 +136,7 @@ class HerSAC(HerAgent):
         :type observation_clip: float
         """
         super(HerSAC, self).__init__(env)
-
+        self.eps_greedy = eps_greedy
         self.gamma = gamma
         self.tau = tau
 
@@ -254,7 +260,8 @@ class HerSAC(HerAgent):
     @torch.no_grad()
     def compute_action(self, state):
         # Random exploration
-        if self._train_mode and self._total_steps < self.random_steps:
+        if self._train_mode and (self._total_steps < self.random_steps or
+                                 np.random.random_sample() < self.eps_greedy):
             return self.env.action_space.sample()
 
         # Pre-process
@@ -264,7 +271,7 @@ class HerSAC(HerAgent):
         goal = self.goal_normalizer.transform(goal).unsqueeze_(0).to(_DEVICE)
 
         # Compute action
-        action, _ = self.actor.sample(obs, goal)
+        action, _ = self.actor(obs, goal, deterministic=not self._train_mode)
         action = action.squeeze_(0).cpu().numpy()
 
         return self._to_action_space(action)
@@ -274,21 +281,18 @@ class HerSAC(HerAgent):
             super(HerSAC, self).train(steps, progress)
 
     def _train(self):
-        batch, demo_mask = self._sample_batch()
+        batch = self._sample_batch()
         (obs, action, next_obs, reward, terminal, goal, _) = batch
 
-        obs = self.obs_normalizer.transform(obs)
-        next_obs = self.obs_normalizer.transform(next_obs)
-        goal = self.goal_normalizer.transform(goal)
-
         self._train_critic(obs, action, next_obs, goal, reward, terminal)
-        self._train_policy(obs, action, goal, demo_mask)
-        self._train_alpha(obs[:self.batch_size], goal[:self.batch_size])
+        self._train_policy(obs, action, goal)
+        self._train_alpha(obs, goal)
         self._update_target_networks()
 
     def _train_critic(self, obs, action, next_obs, goal, reward, terminal):
         with torch.no_grad():
-            next_action, next_log_pi = self.actor.sample(next_obs, goal)
+            next_action, next_log_pi = self.actor(next_obs, goal)
+            next_log_pi[self.batch_size:] = 0.0
 
             next_q1 = self.target_critic_1(next_obs, goal, next_action)
             next_q2 = self.target_critic_2(next_obs, goal, next_action)
@@ -318,21 +322,28 @@ class HerSAC(HerAgent):
             self._summary.add_scalar("Loss/Q1", loss_q1, self._train_steps)
             self._summary.add_scalar("Loss/Q2", loss_q2, self._train_steps)
 
-    def _train_policy(self, obs, action, goal, demo_mask):
-        actor_out, log_pi = self.actor.sample(obs, goal)
+    def _train_policy(self, obs, action, goal):
+        actor_out, log_pi = self.actor(obs, goal)
+        log_pi[self.batch_size:] = 0.0
+
         min_q = torch.min(self.critic_1(obs, goal, actor_out),
                           self.critic_2(obs, goal, actor_out))
 
         # Jπ = 𝔼st∼D,εt∼N[α * log π(f(εt;st)|st) − Q(st,f(εt;st))]
         pi_loss = (self.alpha * log_pi - min_q).mean()
         pi_loss += self._action_penalty * actor_out.pow(2).mean()
-        if demo_mask.any():
-            cloning_loss = (actor_out[demo_mask] - action[demo_mask])
+        if action.shape[0] > self.batch_size:  # has demo
+            cloning_loss = (actor_out[self.batch_size:] -
+                            action[self.batch_size:])
             if self._q_filter:
-                cur_min_q = torch.min(self.critic_1(obs, goal, action),
-                                      self.critic_2(obs, goal, action))
+                cur_min_q = torch.min(self.critic_1(obs[self.batch_size:],
+                                                    goal[self.batch_size:],
+                                                    action[self.batch_size:]),
+                                      self.critic_2(obs[self.batch_size:],
+                                                    goal[self.batch_size:],
+                                                    action[self.batch_size:]))
 
-                q_mask = (cur_min_q[demo_mask] > min_q[demo_mask]).flatten()
+                q_mask = (cur_min_q > min_q[self.batch_size:]).flatten()
                 cloning_loss = cloning_loss[q_mask]
 
             prm_loss = self._prm_loss_weight * pi_loss
@@ -349,14 +360,16 @@ class HerSAC(HerAgent):
 
         with torch.no_grad():
             self._summary.add_scalar("Loss/Policy", pi_loss, self._train_steps)
-            self._summary.add_scalar("Stats/LogProb", log_pi.mean(),
+            self._summary.add_scalar("Stats/LogProb",
+                                     log_pi[:self.batch_size].mean(),
                                      self._train_steps)
             self._summary.add_scalar("Stats/Alpha", self.alpha,
                                      self._train_steps)
 
     def _train_alpha(self, obs, goal):
         if self._alpha_optim is not None:
-            _, log_pi = self.actor.sample(obs, goal)
+            _, log_pi = self.actor(obs[:self.batch_size],
+                                   goal[:self.batch_size])
             alpha_loss = (self._log_alpha *
                           (-log_pi - self.target_entropy).detach()).mean()
 
@@ -377,7 +390,6 @@ class HerSAC(HerAgent):
 
         has_demo = (self._demo_replay_buffer is not None and
                     self._demo_batch_size > 0)
-        demo_batch_size = has_demo * self._demo_batch_size
 
         batch = self.replay_buffer.sample_batch_torch(
             sample_size=self.batch_size, replay_k=self._replay_k,
@@ -385,14 +397,24 @@ class HerSAC(HerAgent):
 
         if has_demo:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
-                sample_size=demo_batch_size, replay_k=0,
+                sample_size=self._demo_batch_size, replay_k=0,
                 reward_fn=_sample_reward_fn, device=_DEVICE)
             batch = tuple(torch.cat((x, y), dim=0)
                           for x, y in zip(batch, demo_batch))
 
-        exp_mask = torch.zeros(self.batch_size, dtype=torch.bool)
-        demo_mask = torch.ones(demo_batch_size, dtype=torch.bool)
-        return batch, torch.cat((exp_mask, demo_mask), dim=0).to(_DEVICE)
+        return self._normalize_batch(batch)
+
+    def _normalize_batch(self, batch):
+        (obs, action, next_obs, reward, terminal, goal, achieved_goal) = batch
+        return HerBatch(
+            obs=self.obs_normalizer.transform(obs),
+            action=action,
+            next_obs=self.obs_normalizer.transform(next_obs),
+            reward=reward,
+            terminal=terminal,
+            goal=self.goal_normalizer.transform(goal),
+            achieved_goal=self.goal_normalizer.transform(achieved_goal))
+
 
     # Agent State
     ########################
@@ -458,6 +480,7 @@ class HerSAC(HerAgent):
 
         args = collections.OrderedDict([
             ('alpha', self.alpha.item()),
+            ('eps_greedy', self.eps_greedy),
             ('gamma', self.gamma),
             ('tau', self.tau),
             ('batch_size', self.batch_size),

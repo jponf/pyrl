@@ -150,27 +150,16 @@ class GaussianPolicyMLP(nn.Module):
         self.log_std_min = log_std_min
         self.epsilon = epsilon
 
-    def forward(self, states):  # pylint: disable=arguments-differ
+    def forward(self, states,          # pylint: disable=arguments-differ
+                deterministic=False):
         mean, log_std = torch.chunk(self.network(states), 2, dim=-1)
         log_std.clamp_(min=self.log_std_min, max=self.log_std_max)
-        return mean, log_std
+        normal = torch.distributions.Normal(mean, log_std.exp())
 
-    def sample(self, states):
-        """Sample elements from Gaussian distribution of (mean, std).
+        samples = mean if deterministic else normal.rsample()
+        actions = torch.tanh(samples)
 
-        :returns: A tuple with actions sampled form a normal distribution,
-            their associated entropies and the actions equivalent to the
-            means of the normal distribution.
-        """
-        means, log_stds = self(states)
-        stds = log_stds.exp()
-        normal = torch.distributions.Normal(means, stds)
-
-        r_sample = normal.rsample()  # reparameterization trick
-        actions = torch.tanh(r_sample)
-
-        # likelihood of the bounded actions (by tanh)
-        log_prob = normal.log_prob(r_sample)
+        log_prob = normal.log_prob(samples)
         log_prob -= torch.log(1 - actions.pow(2) + self.epsilon)
         log_prob = log_prob.sum(dim=1, keepdim=True)
 
@@ -249,7 +238,7 @@ class HerPolicyMLP(nn.Module):
         return self._policy.action_space
 
     def forward(self, obs, goals):  # pylint: disable=arguments-differ
-        return self._policy(torch.cat((obs, goals), dim=1))
+        return self._policy.forward(states=torch.cat((obs, goals), dim=1))
 
 
 class HerGaussianPolicyMLP(nn.Module):
@@ -290,8 +279,8 @@ class HerGaussianPolicyMLP(nn.Module):
         """Actor action space."""
         return self._policy.action_space
 
-    def forward(self, obs, goals):  # pylint: disable=arguments-differ
-        return self._policy.forward(torch.cat((obs, goals), dim=1))
-
-    def sample(self, obs, goals):
-        return self._policy.sample(torch.cat((obs, goals), dim=1))
+    def forward(self, obs, goals,      # pylint: disable=arguments-differ
+                deterministic=False):
+        return self._policy.forward(
+            states=torch.cat((obs, goals), dim=1),
+            deterministic=deterministic)

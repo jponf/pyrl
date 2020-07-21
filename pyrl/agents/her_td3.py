@@ -269,7 +269,8 @@ class HerTD3(HerAgent):
     @torch.no_grad()
     def compute_action(self, state):
         # Random exploration
-        if self._train_mode and self._total_steps < self.random_steps:
+        if self._train_mode and (self._total_steps < self.random_steps or
+                                 np.random.random_sample() < self.eps_greedy):
             return self.env.action_space.sample()
 
         # Pre-process
@@ -280,14 +281,10 @@ class HerTD3(HerAgent):
 
         # Compute action
         if self._train_mode:
-            if np.random.random_sample() < self.eps_greedy:
-                action = np.random.uniform(low=self.actor.action_space.low,
-                                           high=self.actor.action_space.high)
-            else:
-                action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
-                action = np.clip(action + self.action_noise(),
-                                 self.actor.action_space.low,
-                                 self.actor.action_space.high)
+            action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
+            action = np.clip(action + self.action_noise(),
+                             self.actor.action_space.low,
+                             self.actor.action_space.high)
         else:
             action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
 

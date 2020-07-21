@@ -1,5 +1,7 @@
 # -*- codint: utf-8 -*-
 
+import collections
+
 import six
 
 # SciPy Stack
@@ -398,6 +400,11 @@ class EpisodicReplayBuffer(object):
 
 ###############################################################################
 
+HerBatch = collections.namedtuple("HerBatch",
+                                  ["obs", "action", "next_obs", "reward",
+                                   "terminal", "goal", "achieved_goal"])
+
+
 class HerReplayBuffer(object):
     """Replay buffer structured and extended with additional functionallity
     required to implement the sampling techniques for Hindsight Experience
@@ -609,8 +616,8 @@ class HerReplayBuffer(object):
         # Recompute reward since we may have substituted the goal
         reward = reward_fn(achieved_goal, goal).reshape(reward.shape)
 
-        return (obs, action, next_obs, reward, terminal,
-                goal, achieved_goal)
+        return HerBatch(obs, action, next_obs, reward, terminal,
+                        goal, achieved_goal)
 
     def sample_batch_torch(self, sample_size, replay_k,
                            reward_fn, device="cpu"):
@@ -619,9 +626,15 @@ class HerReplayBuffer(object):
 
         For additional information see `sample_batch`.
         """
-        return tuple(torch.from_numpy(x).to(device)
-                     for x in self.sample_batch(sample_size, replay_k,
-                                                reward_fn))
+        batch = self.sample_batch(sample_size, replay_k, reward_fn)
+        return HerBatch(
+            obs=torch.from_numpy(batch.obs).to(device),
+            action=torch.from_numpy(batch.action).to(device),
+            next_obs=torch.from_numpy(batch.next_obs).to(device),
+            reward=torch.from_numpy(batch.reward).to(device),
+            terminal=torch.from_numpy(batch.terminal).to(device),
+            goal=torch.from_numpy(batch.goal).to(device),
+            achieved_goal=torch.from_numpy(batch.achieved_goal).to(device))
 
     def save(self, path):
         """Saves the replay buffer in hdf5 format into the file pointed
