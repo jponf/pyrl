@@ -1,8 +1,14 @@
 # Python Reinforcement Learning Agents
 
 Different reinforcement learning agents implemented in Python. The current
-version uses Pytorch ![Pytorch Logo][pytorch-16px], but more frameworks may be supported in the future.
+version uses Pytorch ![Pytorch Logo][pytorch-16px], but more frameworks may be
+supported in the future.
 
+ * [Requirements 📋](#Requirements-📋)
+ * [Implemented Algorithms](#Implemented-Algorithms)
+ * [Package Structure 💻](#Package-Structure-💻)
+ * [More Examples](#More-Examples)
+ * [Authors 👨‍🎨](#Authors-👨‍🎨)
 
 ## Requirements 📋
 
@@ -86,7 +92,7 @@ python -m pyrl ddpg-test --help
 
 **TODO:** Add bipedal walker test GIF.
 
-## Package structure ![technologist-32px]
+## Package Structure 💻
 
 This package does not have a formal documentation yet, methods are just
 documented within the code. In the meantime, if instead of using the package
@@ -247,3 +253,8 @@ class BaseAgent:
 
 [technologist-16px]: images/technologist-16.png "Technologist Emoji 16x16"
 [technologist-32px]: images/technologist-32.png "Technologist Emoji 32x32"
+
+## Authors 👨‍🎨
+
+ * [Josep Pon Farreny](https://github.com/jponf)
+ * [Guillem Orellana](https://github.com/Guillem96)
