@@ -4,11 +4,11 @@ Different reinforcement learning agents implemented in Python. The current
 version uses Pytorch ![Pytorch Logo][pytorch-16px], but more frameworks may be
 supported in the future.
 
- * [Requirements 📋](#Requirements-📋)
+ * [Requirements 📋](#Requirements)
  * [Implemented Algorithms](#Implemented-Algorithms)
- * [Package Structure 💻](#Package-Structure-💻)
+ * [Package Structure 💻](#Package-Structure)
  * [More Examples](#More-Examples)
- * [Authors 👨‍🎨](#Authors-👨‍🎨)
+ * [Authors 👨‍🎨](#Authors)
 
 ## Requirements 📋
 
