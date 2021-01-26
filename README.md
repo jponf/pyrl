@@ -86,12 +86,6 @@ python -m pyrl ddpg-train --help
 python -m pyrl ddpg-test --help
 ```
 
-### Example DDPG on Bipedal Walker
-
-![DDPG training on Bipedal Walker GIF](images/gif/ddpg-bipedalwalker-train.gif)
-
-**TODO:** Add bipedal walker test GIF.
-
 ## Package Structure 💻
 
 This package does not have a formal documentation yet, methods are just
@@ -229,7 +223,7 @@ class BaseAgent:
         """
 ```
 
-## More Examples
+## Examples
 
  * SAC on *FetchReach* Environment
    ![SAC on FetchReach GIF](images/gif/her-sac-fetch-reach.gif)
