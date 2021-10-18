@@ -13,7 +13,7 @@ import gym
 import torch
 import torch.nn as nn
 
-import pyrl.agents.models_utils as models_utils
+from . import models_utils
 
 
 ###############################################################################
