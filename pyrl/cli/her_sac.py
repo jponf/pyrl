@@ -26,8 +26,6 @@ import pyrl.trainer
 
 ###############################################################################
 
-click.disable_unicode_literals_warning = True
-
 _LOG = pyrl.util.logging.get_logger()
 
 
@@ -35,31 +33,32 @@ _LOG = pyrl.util.logging.get_logger()
 
 @click.command(name="her-sac-train")
 @click.argument("environment", type=str)
-@click.option("--num-epochs", type=int, default=20)
-@click.option("--num-cycles", type=int, default=50)
-@click.option("--num-episodes", type=int, default=16)
-@click.option("--num-envs", type=int, default=1)
-@click.option("--num-evals", type=int, default=1)
-@click.option("--num-cpus", type=int, default=1)
+@click.option("--num-epochs", type=int, show_default=True, default=20)
+@click.option("--num-cycles", type=int, show_default=True, default=50)
+@click.option("--num-episodes", type=int, show_default=True, default=16)
+@click.option("--num-envs", type=int, show_default=True, default=1)
+@click.option("--num-evals", type=int, show_default=True, default=1)
+@click.option("--num-cpus", type=int, show_default=True, default=1)
 @click.option("--demo-path", type=click.Path(exists=True, file_okay=True),
               required=False, help="Path to the file with demonstration runs.")
-@click.option("--reward-scale", type=float, default=1.0)
-@click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--random-steps", type=int, default=1500)
-@click.option("--replay-k", type=int, default=4,
+@click.option("--reward-scale", type=float, show_default=True, default=1.0)
+@click.option("--replay-buffer", type=int, show_default=True, default=1000000)
+@click.option("--random-steps", type=int, show_default=True, default=1500)
+@click.option("--replay-k", type=int, show_default=True, default=4,
               help="The ratio between HER replays and regular replays,"
                    " e.g. k = 4 -> 4 times as many HER replays as regular"
                    " replays.")
-@click.option("--q-filter/--no-q-filter", default=False)
+@click.option("--q-filter/--no-q-filter", show_default=True, default=False)
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
-              default="standard", help="If set to none, the observations "
-                                       "won't be normalized")
-@click.option("--obs-clip", type=float, default=5.0,
+              show_default=True, default="standard",
+              help="If set to none, the observations won't be normalized")
+@click.option("--obs-clip", type=float, show_default=True, default=5.0,
               help="Min/Max. value to clip the observations to if they are"
                    " being normalized.")
-@click.option("--render/--no-render", default=False)
+@click.option("--render/--no-render", show_default=True, default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/her-sac")
+@click.option("--save", type=click.Path(), show_default=True,
+              default="checkpoints/her-sac")
 @click.option("--seed", type=int, default=int(time.time()))
 def cli_her_sac_train(environment,
                       num_epochs,

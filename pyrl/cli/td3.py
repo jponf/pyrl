@@ -23,8 +23,6 @@ import pyrl.util.ugym
 
 ###############################################################################
 
-click.disable_unicode_literals_warning = True
-
 _LOG = pyrl.util.logging.get_logger()
 
 
@@ -32,30 +30,34 @@ _LOG = pyrl.util.logging.get_logger()
 
 @click.command(name="td3-train")
 @click.argument("environment", type=str)
-@click.option("--num-epochs", type=int, default=20)
-@click.option("--num-episodes", type=int, default=20)
-@click.option("--num-envs", type=int, default=1)
-@click.option("--num-evals", type=int, default=1)
-@click.option("--num-cpus", type=int, default=1)
-@click.option("--gamma", type=float, default=.99, help="Discount factor")
-@click.option("--tau", type=float, default=.001, help="Polyak averaging")
-@click.option("--batch-size", type=int, default=128)
-@click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--reward-scale", type=float, default=1.0)
-@click.option("--policy-delay", type=int, default=2)
-@click.option("--random-steps", type=int, default=1500)
-@click.option("--action-noise", type=str, default="normal_0.2",
+@click.option("--num-epochs", type=int, show_default=True, default=20)
+@click.option("--num-episodes", type=int, show_default=True, default=20)
+@click.option("--num-envs", type=int, show_default=True, default=1)
+@click.option("--num-evals", type=int, show_default=True, default=1)
+@click.option("--num-cpus", type=int, show_default=True, default=1)
+@click.option("--gamma", type=float, show_default=True, default=.99,
+              help="Discount factor")
+@click.option("--tau", type=float, show_default=True, default=.001,
+              help="Polyak averaging")
+@click.option("--batch-size", type=int, show_default=True, default=128)
+@click.option("--replay-buffer", type=int, show_default=True, default=1000000)
+@click.option("--reward-scale", type=float, show_default=True, default=1.0)
+@click.option("--policy-delay", type=int, show_default=True, default=2)
+@click.option("--random-steps", type=int, show_default=True, default=1500)
+@click.option("--action-noise", type=str, show_default=True,
+              default="normal_0.2",
               help="Action noise, it can be 'none' or name_std, for example:"
                    " ou_0.2 or normal_0.1.")
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
-              default="standard", help="If set to none, the observations "
-                                       "won't be normalized")
-@click.option("--obs-clip", type=float, default=5.0,
+              show_default=True, default="standard",
+              help="If set to none, the observations won't be normalized")
+@click.option("--obs-clip", type=float, show_default=True, default=5.0,
               help="Min/Max. value to clip the observations to if they are"
                    " being normalized.")
-@click.option("--render/--no-render", default=False)
+@click.option("--render/--no-render", show_default=True, default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/td3")
+@click.option("--save", type=click.Path(), show_default=True,
+              default="checkpoints/td3")
 @click.option("--seed", type=int, default=int(time.time()))
 def cli_td3_train(environment,
                   num_epochs,

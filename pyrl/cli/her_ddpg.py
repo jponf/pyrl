@@ -26,8 +26,6 @@ import pyrl.trainer
 
 ###############################################################################
 
-click.disable_unicode_literals_warning = True
-
 _LOG = pyrl.util.logging.get_logger()
 
 
@@ -35,32 +33,33 @@ _LOG = pyrl.util.logging.get_logger()
 
 @click.command(name="her-ddpg-train")
 @click.argument("environment", type=str)
-@click.option("--num-epochs", type=int, default=20)
-@click.option("--num-cycles", type=int, default=50)
-@click.option("--num-episodes", type=int, default=16)
-@click.option("--num-envs", type=int, default=1)
-@click.option("--num-evals", type=int, default=1)
-@click.option("--num-cpus", type=int, default=1)
+@click.option("--num-epochs", type=int, show_default=True, default=20)
+@click.option("--num-cycles", type=int, show_default=True, default=50)
+@click.option("--num-episodes", type=int, show_default=True, default=16)
+@click.option("--num-envs", type=int, show_default=True, default=1)
+@click.option("--num-evals", type=int, show_default=True, default=1)
+@click.option("--num-cpus", type=int, show_default=True, default=1)
 @click.option("--demo-path", type=click.Path(exists=True, file_okay=True),
               required=False, help="Path to the file with demonstration runs.")
-@click.option("--eps-greedy", type=float, default=0.2)
-@click.option("--reward-scale", type=float, default=1.0)
-@click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--replay-k", type=int, default=4,
+@click.option("--eps-greedy", type=float, show_default=True, default=0.2)
+@click.option("--reward-scale", type=float, show_default=True, default=1.0)
+@click.option("--replay-buffer", type=int, show_default=True, default=1000000)
+@click.option("--replay-k", type=int, show_default=True, default=4,
               help="The ratio between HER replays and regular replays,"
                    " e.g. k = 4 -> 4 times as many HER replays as regular"
                    " replays.")
-@click.option("--q-filter/--no-q-filter", default=False)
-@click.option("--action-noise", type=str, default="ou_0.2")
+@click.option("--q-filter/--no-q-filter", show_default=True, default=False)
+@click.option("--action-noise", type=str, show_default=True, default="ou_0.2")
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
-              default="standard", help="If set to none, the observations "
-                                       "won't be normalized")
-@click.option("--obs-clip", type=float, default=5.0,
+              show_default=True, default="standard",
+              help="If set to none, the observations won't be normalized")
+@click.option("--obs-clip", type=float, show_default=True, default=5.0,
               help="Min/Max. value to clip the observations to if they are"
                    " being normalized.")
-@click.option("--render/--no-render", default=False)
+@click.option("--render/--no-render", show_default=True, default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/her-ddpg")
+@click.option("--save", type=click.Path(), show_default=True,
+              default="checkpoints/her-ddpg")
 @click.option("--seed", type=int, default=int(time.time()))
 def cli_her_ddpg_train(environment,
                        num_epochs,
@@ -130,6 +129,9 @@ def cli_her_ddpg_train(environment,
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
+    if render:                # Some environments must be rendered
+        trainer.env.render()  # before running
+
     with trainer:
         _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals,
                    save)
@@ -178,7 +180,7 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 @click.command("her-ddpg-test")
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
-@click.option("--num-episodes", type=int, default=5)
+@click.option("--num-episodes", type=int, show_default=True, default=5)
 @click.option("--pause/--no-pause", default=False,
               help="Pause (or not) before running an episode.")
 @click.option("--seed", type=int, default=int(time.time()))

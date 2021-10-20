@@ -23,8 +23,6 @@ import pyrl.util.ugym
 
 ###############################################################################
 
-click.disable_unicode_literals_warning = True
-
 _LOG = pyrl.util.logging.get_logger()
 
 
@@ -32,29 +30,32 @@ _LOG = pyrl.util.logging.get_logger()
 
 @click.command(name="ddpg-train")
 @click.argument("environment", type=str)
-@click.option("--num-epochs", type=int, default=20)
-@click.option("--num-episodes", type=int, default=20)
-@click.option("--num-envs", type=int, default=1)
-@click.option("--num-evals", type=int, default=1)
-@click.option("--num-cpus", type=int, default=1)
-@click.option("--gamma", type=float, default=.99, help="Discount factor")
-@click.option("--tau", type=float, default=.001, help="Polyak averaging")
-@click.option("--batch-size", type=int, default=128)
-@click.option("--replay-buffer", type=int, default=1000000)
-@click.option("--reward-scale", type=float, default=1.0)
-@click.option("--action-noise", type=str, default="ou_0.2",
+@click.option("--num-epochs", type=int, default=20, show_default=True)
+@click.option("--num-episodes", type=int, default=20, show_default=True)
+@click.option("--num-envs", type=int, default=1, show_default=True)
+@click.option("--num-evals", type=int, default=1, show_default=True)
+@click.option("--num-cpus", type=int, default=1, show_default=True)
+@click.option("--gamma", type=float, default=.99, show_default=True,
+              help="Discount factor")
+@click.option("--tau", type=float, default=.001, show_default=True,
+              help="Polyak averaging")
+@click.option("--batch-size", type=int, default=128, show_default=True)
+@click.option("--replay-buffer", type=int, default=1000000, show_default=True)
+@click.option("--reward-scale", type=float, default=1.0, show_default=True)
+@click.option("--action-noise", type=str, show_default=True, default="ou_0.2",
               help="Action noise, it can be 'none' or name_std, for example:"
                    " ou_0.2 or normal_0.1.")
-@click.option("--parameter-noise", type=float, default=0.0)
+@click.option("--parameter-noise", type=float, default=0.0, show_default=True)
 @click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
-              default="standard", help="If set to none, the observations "
-                                       "won't be normalized")
-@click.option("--obs-clip", type=float, default=5.0,
+              show_default=True, default="standard",
+              help="If set to none, the observations won't be normalized")
+@click.option("--obs-clip", type=float, default=5.0, show_default=True,
               help="Min/Max. value to clip the observations to if they are"
                    " being normalized.")
-@click.option("--render/--no-render", default=False)
+@click.option("--render/--no-render", show_default=True, default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), default="checkpoints/ddpg")
+@click.option("--save", type=click.Path(), show_default=True,
+              default="checkpoints/ddpg")
 @click.option("--seed", type=int, default=int(time.time()))
 def cli_ddpg_train(environment,
                    num_epochs,
@@ -158,7 +159,7 @@ def _run_train_epoch(trainer, epoch, num_episodes, save_path):
 @click.command("ddpg-test")
 @click.argument("environment", type=str)
 @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
-@click.option("--num-episodes", type=int, default=5)
+@click.option("--num-episodes", type=int, show_default=True, default=5)
 @click.option("--seed", type=int, default=int(time.time()))
 def cli_ddpg_test(environment, agent_path, num_episodes, seed):
     """Runs a previously trained DDPG agent on an OpenAI's gym environment."""
