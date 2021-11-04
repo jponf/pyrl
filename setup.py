@@ -32,7 +32,7 @@ def get_version(rel_path):
 # Comma separated list of names and emails
 AUTHORS = "Josep Pon, Guillem Orellana"
 
-EMAILS = "Josep.Pon@gft.com, Guillem.Orellana@gft.com"
+EMAILS = "jponfarreny@gmail.com, guillem.orellana@gmail.com"
 
 # Short description
 DESCRIPTION = ""
