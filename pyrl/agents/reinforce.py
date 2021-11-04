@@ -23,7 +23,7 @@ class NormalReinforcePolicy(keras.Model):
         super().__init__(name="DefaultContinuousReinforcePolicy")
         self.dense_in = keras.Dense(hidden_size, input_dim=input_dim)
         self.dense_hidden = [keras.Dense(hidden_size, input_dim=hidden_size)
-                             for_ in num_hidden]
+                             for _ in num_hidden]
         self.dense_out_mu = keras.Dense(output_dim, input_dim=hidden_size)
         self.dense_out_sigma = keras.Dense(output_dim, input_dim=hidden_size)
 
@@ -76,7 +76,7 @@ class ReinforceContinuousAgent(object):
             self.rewards.append(reward)
 
     def _update_policy(self):
-
+        raise NotImplementedError()
 
 ################################################################################
 
@@ -88,7 +88,7 @@ def normal_pdf(x, mu, sigma):
     pi = tf.broadcast(_TF_PI, shape=sigma.shape)
 
     op1 = 1 / (sigma * tf.sqrt(2 * pi))
-    op2_exp = -0.5 * tf.pow((x - mu) / sigma), 2)
+    op2_exp = -0.5 * tf.pow((x - mu) / sigma, 2)
 
     return op1 * tf.exp(op2_exp)
 
