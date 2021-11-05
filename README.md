@@ -30,7 +30,7 @@ manage your [virtual environments][venv], you can use pip with the
 *requirements.txt* file.
 
 ```console
-pip install -r requirements.txt
+$ pip install -r requirements.txt
 ```
 
 ## Implemented Algorithms
