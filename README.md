@@ -10,35 +10,28 @@ supported in the future.
  * [More Examples](#More-Examples)
  * [Authors 👨‍🎨](#Authors-)
 
-## Requirements 📋
+## Requirements
 
-The main requirement is a Python 3 interpreter, preferably 3.5 or newer but
-it should work just as fine with previous versions. If you do not have a
-valid interpreter you are probably running Windows or MacOS, for these systems
-we recommend using [Conda][miniconda].
+The project uses poetry to manage the requirements, but since dependency
+resolution can be painfuly slow in some situations, we also provide a
+working *poetry.lock* file as well as the dependencies exported in the
+traditional *requirements.txt* format.
 
-Additionally, to avoid polluting your Python's system-wide environment we
-recommend creating a virtual environment, for example:
+If you use poetry just run the following command and it will create
+a new **.venv** directory inside the project directory and install
+all the dependencies.
 
-```
-python3 -m venv ~/.virtualenvs/rl
-```
-
-or, if you use conda:
-
-```
-conda create --name rl
+```console
+$ poetry install
 ```
 
-Finally, with the Python environment set up, we just need to install the
-required packages, which are all avaliable through PyPi, run
+If you use a diferent system, such as [conda][miniconda] or manually
+manage your [virtual environments][venv], you can use pip with the
+*requirements.txt* file.
 
-```
+```console
 pip install -r requirements.txt
 ```
-
-to install them all.
-
 
 ## Implemented Algorithms
 
@@ -237,6 +230,7 @@ class BaseAgent:
 [her]: https://arxiv.org/abs/1707.01495 "arXiv: Hindisght Experience Replay"
 
 [miniconda]: https://docs.conda.io/en/latest/miniconda.html "Free minimal installer for conda"
+[venv]: https://docs.python.org/3/library/venv.html "Creation of virtual environments"
 
 <!-- ***** Images ***** -->
 [gym-16px]: images/gym-16.png "OpenAI Gym Logo 16px"
