@@ -231,7 +231,7 @@ python-versions = ">=3.5"
 
 [[package]]
 name = "importlib-metadata"
-version = "4.8.1"
+version = "4.8.2"
 description = "Read metadata from Python packages"
 category = "main"
 optional = false
@@ -244,7 +244,7 @@ zipp = ">=0.5"
 [package.extras]
 docs = ["sphinx", "jaraco.packaging (>=8.2)", "rst.linker (>=1.9)"]
 perf = ["ipython"]
-testing = ["pytest (>=4.6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-cov", "pytest-enabler (>=1.0.1)", "packaging", "pep517", "pyfakefs", "flufl.flake8", "pytest-perf (>=0.9.2)", "pytest-black (>=0.3.7)", "pytest-mypy", "importlib-resources (>=1.3)"]
+testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-cov", "pytest-enabler (>=1.0.1)", "packaging", "pep517", "pyfakefs", "flufl.flake8", "pytest-perf (>=0.9.2)", "pytest-black (>=0.3.7)", "pytest-mypy", "importlib-resources (>=1.3)"]
 
 [[package]]
 name = "keras"
@@ -461,7 +461,7 @@ python-versions = "*"
 
 [[package]]
 name = "tensorflow"
-version = "2.6.1"
+version = "2.6.2"
 description = "TensorFlow is an open source machine learning framework for everyone."
 category = "main"
 optional = false
@@ -730,8 +730,8 @@ idna = [
     {file = "idna-3.3.tar.gz", hash = "sha256:9d643ff0a55b762d5cdb124b8eaa99c66322e2157b69160bc32796e824360e6d"},
 ]
 importlib-metadata = [
-    {file = "importlib_metadata-4.8.1-py3-none-any.whl", hash = "sha256:b618b6d2d5ffa2f16add5697cf57a46c76a56229b0ed1c438322e4e95645bd15"},
-    {file = "importlib_metadata-4.8.1.tar.gz", hash = "sha256:f284b3e11256ad1e5d03ab86bb2ccd6f5339688ff17a4d797a0fe7df326f23b1"},
+    {file = "importlib_metadata-4.8.2-py3-none-any.whl", hash = "sha256:53ccfd5c134223e497627b9815d5030edf77d2ed573922f7a0b8f8bb81a1c100"},
+    {file = "importlib_metadata-4.8.2.tar.gz", hash = "sha256:75bdec14c397f528724c1bfd9709d660b33a4d2e77387a3358f20b848bb5e5fb"},
 ]
 keras = [
     {file = "keras-2.6.0-py2.py3-none-any.whl", hash = "sha256:504af5656a9829fe803ce48a8580ef16916e89906aceddad9e098614269437e7"},
@@ -906,12 +906,16 @@ tensorboard-plugin-wit = [
 tensorflow = [
     {file = "tensorflow-2.6.2-cp36-cp36m-macosx_10_11_x86_64.whl", hash = "sha256:9c85ba08cd08dbf3ba09720e03672da3ccdf969377be85d03bc24b5fe3ca8c21"},
     {file = "tensorflow-2.6.2-cp36-cp36m-manylinux2010_x86_64.whl", hash = "sha256:423e814557ddd1562a01a78925362bb25b47bafd4f840f22dae34033945beffd"},
+    {file = "tensorflow-2.6.2-cp36-cp36m-win_amd64.whl", hash = "sha256:22b88b00d74774ee1ffd22e504b37ae9af512aff804d26652d2497687830525f"},
     {file = "tensorflow-2.6.2-cp37-cp37m-macosx_10_11_x86_64.whl", hash = "sha256:16dc1ee49dd8b761577f8abd914a2836647de393b17fe140885f72acd8483e96"},
     {file = "tensorflow-2.6.2-cp37-cp37m-manylinux2010_x86_64.whl", hash = "sha256:902b233337538e89752f019b3c16b23dff4915f6d3666c35ec029ab4641e9f1c"},
+    {file = "tensorflow-2.6.2-cp37-cp37m-win_amd64.whl", hash = "sha256:e12e70b768e2f1901e69367fae94ac78b0f524019ea439ab849dd2afadcd6450"},
     {file = "tensorflow-2.6.2-cp38-cp38-macosx_10_11_x86_64.whl", hash = "sha256:caffa6d919b428901e224f778206d5bac4b553dadc1301409781af971b06e000"},
     {file = "tensorflow-2.6.2-cp38-cp38-manylinux2010_x86_64.whl", hash = "sha256:6da1ca578c061d6072829777d121a0b755d3d50770b4ea3879cdb5eba28dee03"},
+    {file = "tensorflow-2.6.2-cp38-cp38-win_amd64.whl", hash = "sha256:2c9c4506cc8bb5cdd25a9b5046fbdc91dd29ba931f55c98a126f33a9c86668f1"},
     {file = "tensorflow-2.6.2-cp39-cp39-macosx_10_11_x86_64.whl", hash = "sha256:50e216f3c8512d27d41d24b8990faa2d8a408196cf53342703c26ff5e2cf0ab0"},
     {file = "tensorflow-2.6.2-cp39-cp39-manylinux2010_x86_64.whl", hash = "sha256:ec08a181a587504ccde13960d47a687e8155c4d1f24750801db9da41d95e7722"},
+    {file = "tensorflow-2.6.2-cp39-cp39-win_amd64.whl", hash = "sha256:b57cebd87d31de8ebd200ad5957d7b54145eafb650f7d8aaf21e89718bade50a"},
 ]
 tensorflow-estimator = [
     {file = "tensorflow_estimator-2.6.0-py2.py3-none-any.whl", hash = "sha256:cf78528998efdb637ac0abaf525c929bf192767544eb24ae20d9266effcf5afd"},
