@@ -22,13 +22,18 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # ...
+from pyrl.models.models_utils import soft_update
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
-from .agents_utils import (create_action_noise, create_normalizer,
-                           create_actor, create_critic, dicts_mean)
+from .agents_utils import (
+    create_action_noise,
+    create_normalizer,
+    create_actor,
+    create_critic,
+    dicts_mean,
+)
 from .core import Agent
-from .models_utils import soft_update
 from .noise import AdaptiveParamNoiseSpec
 from .replay_buffer import FlatReplayBuffer
 
@@ -41,6 +46,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 class DDPG(Agent):
     """Deep Deterministic Policy Gradient.
 
@@ -48,24 +54,26 @@ class DDPG(Agent):
     Learning
     """
 
-    def __init__(self,
-                 observation_space,
-                 action_space,
-                 gamma=.9,
-                 tau=1e-3,
-                 batch_size=128,
-                 reward_scale=1.0,
-                 replay_buffer_size=1000000,
-                 actor_cls=None,
-                 actor_kwargs=None,
-                 actor_lr=0.001,
-                 critic_cls=None,
-                 critic_kwargs=None,
-                 critic_lr=0.001,
-                 observation_normalizer="none",
-                 observation_clip=float('inf'),
-                 action_noise="ou_0.2",
-                 parameter_noise=0.0):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        gamma=0.9,
+        tau=1e-3,
+        batch_size=128,
+        reward_scale=1.0,
+        replay_buffer_size=1000000,
+        actor_cls=None,
+        actor_kwargs=None,
+        actor_lr=0.001,
+        critic_cls=None,
+        critic_kwargs=None,
+        critic_lr=0.001,
+        observation_normalizer="none",
+        observation_clip=float("inf"),
+        action_noise="ou_0.2",
+        parameter_noise=0.0,
+    ):
         """
         :param observation_space: Structure of the observations returned by
             the enviornment.
@@ -121,14 +129,19 @@ class DDPG(Agent):
         self.replay_buffer = FlatReplayBuffer(
             state_shape=self.observation_space.shape,
             action_shape=self.action_space.shape,
-            max_size=replay_buffer_size)
+            max_size=replay_buffer_size,
+        )
 
         # Build model (AC architecture)
-        actors, critics = build_ddpg_ac(self.observation_space,
-                                        self.action_space,
-                                        actor_cls, actor_kwargs,
-                                        critic_cls, critic_kwargs,
-                                        parameter_noise)
+        actors, critics = build_ddpg_ac(
+            self.observation_space,
+            self.action_space,
+            actor_cls,
+            actor_kwargs,
+            critic_cls,
+            critic_kwargs,
+            parameter_noise,
+        )
 
         self.actor, self.target_actor = actors
         self.critic, self.target_critic = critics
@@ -137,16 +150,16 @@ class DDPG(Agent):
         self._actor_lr = actor_lr
         self._critic_kwargs = critic_kwargs
         self._critic_lr = critic_lr
-        self.actor_optimizer = optim.Adam(self.actor.parameters(),
-                                          lr=actor_lr)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(),
-                                           lr=critic_lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
 
         # Normalizer
         self._obs_normalizer_arg = observation_normalizer
-        self.obs_normalizer = create_normalizer(observation_normalizer,
-                                                self.observation_space.shape,
-                                                clip_range=observation_clip)
+        self.obs_normalizer = create_normalizer(
+            observation_normalizer,
+            self.observation_space.shape,
+            clip_range=observation_clip,
+        )
 
         # Noise
         self._action_noise_arg = action_noise
@@ -155,14 +168,16 @@ class DDPG(Agent):
         self.parameter_noise_arg = parameter_noise
         if parameter_noise > 0.0:
             self.param_noise = AdaptiveParamNoiseSpec(
-                initial_stddev=parameter_noise,
-                desired_stddev=parameter_noise)
+                initial_stddev=parameter_noise, desired_stddev=parameter_noise
+            )
             self.perturbed_actor = create_actor(
-                observation_space, action_space, actor_cls, actor_kwargs)
+                observation_space, action_space, actor_cls, actor_kwargs
+            )
             self.perturbed_actor.to(_DEVICE)
             self.perturbed_actor.eval()
-            _perturb_actor(self.actor, self.perturbed_actor,
-                           self.param_noise.current_stddev)
+            _perturb_actor(
+                self.actor, self.perturbed_actor, self.param_noise.current_stddev
+            )
         else:
             self.param_noise = None
             self.perturbed_actor = None
@@ -176,16 +191,21 @@ class DDPG(Agent):
     def begin_episode(self):
         self.action_noise.reset()
         if self.param_noise is not None:
-            _perturb_actor(self.actor, self.perturbed_actor,
-                           self.param_noise.current_stddev)
+            _perturb_actor(
+                self.actor, self.perturbed_actor, self.param_noise.current_stddev
+            )
 
     def update(self, state, action, reward, next_state, terminal):
         action = self._to_actor_space(action)  # re-scale action
 
         self.obs_normalizer.update(torch.FloatTensor(state))
-        self.replay_buffer.add(state=state, action=action,
-                               next_state=next_state,
-                               reward=reward, terminal=terminal)
+        self.replay_buffer.add(
+            state=state,
+            action=action,
+            next_state=next_state,
+            reward=reward,
+            terminal=terminal,
+        )
 
     @torch.no_grad()
     def compute_action(self, state):
@@ -202,9 +222,11 @@ class DDPG(Agent):
         # Post-process
         action = action.squeeze_(0).cpu().numpy()
         if self._train_mode:
-            action = np.clip(action + self.action_noise(),
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+            action = np.clip(
+                action + self.action_noise(),
+                self.actor.action_space.low,
+                self.actor.action_space.high,
+            )
 
         return self._to_action_space(action)
 
@@ -213,9 +235,13 @@ class DDPG(Agent):
             super(DDPG, self).train(steps, progress)
 
     def _train(self):
-        (state, action, next_state,
-         reward, terminal) = self.replay_buffer.sample_batch_torch(
-             self.batch_size, device=_DEVICE)
+        (
+            state,
+            action,
+            next_state,
+            reward,
+            terminal,
+        ) = self.replay_buffer.sample_batch_torch(self.batch_size, device=_DEVICE)
 
         state = self.obs_normalizer.transform(state)
         next_state = self.obs_normalizer.transform(next_state)
@@ -234,9 +260,11 @@ class DDPG(Agent):
         loss_q.backward()
         self.critic_optimizer.step()
 
-        self._summary.add_scalars("Q", {"Critic": current_q.detach().mean(),
-                                        "Target": target_q.mean()},
-                                  self._train_steps)
+        self._summary.add_scalars(
+            "Q",
+            {"Critic": current_q.detach().mean(), "Target": target_q.mean()},
+            self._train_steps,
+        )
         self._summary.add_scalar("Loss/Critic", loss_q, self._train_steps)
 
         # Optimize actor
@@ -261,10 +289,12 @@ class DDPG(Agent):
         for the next "real" perturbation.
         """
         if self.param_noise is not None:
-            _perturb_actor(self.actor, self.perturbed_actor,
-                           self.param_noise.current_stddev)
+            _perturb_actor(
+                self.actor, self.perturbed_actor, self.param_noise.current_stddev
+            )
             (state, _, _, _, _) = self.replay_buffer.sample_batch_torch(
-                self.batch_size, device=_DEVICE)
+                self.batch_size, device=_DEVICE
+            )
 
             state = self.obs_normalizer.transform(state)
 
@@ -279,16 +309,18 @@ class DDPG(Agent):
     ########################
 
     def state_dict(self):
-        state = {"critic": self.critic.state_dict(),
-                 "actor": self.actor.state_dict(),
-                 "obs_normalizer": self.obs_normalizer.state_dict(),
-                 "train_steps": self._train_steps}
+        state = {
+            "critic": self.critic.state_dict(),
+            "actor": self.actor.state_dict(),
+            "obs_normalizer": self.obs_normalizer.state_dict(),
+            "train_steps": self._train_steps,
+        }
 
         return state
 
     def load_state_dict(self, state):
-        self.critic.load_state_dict(state['critic'])
-        self.target_critic.load_state_dict(state['critic'])
+        self.critic.load_state_dict(state["critic"])
+        self.target_critic.load_state_dict(state["critic"])
         self.actor.load_state_dict(state["actor"])
         self.target_actor.load_state_dict(state["actor"])
 
@@ -297,16 +329,15 @@ class DDPG(Agent):
         self._train_steps = state["train_steps"]
 
     def aggregate_state_dicts(self, states):
-        critic_state = dicts_mean([x['critic'] for x in states])
+        critic_state = dicts_mean([x["critic"] for x in states])
         self.critic.load_state_dict(critic_state)
         self.target_critic.load_state_dict(critic_state)
 
-        actor_state = dicts_mean([x['actor'] for x in states])
+        actor_state = dicts_mean([x["actor"] for x in states])
         self.actor.load_state_dict(actor_state)
         self.target_actor.load_state_dict(actor_state)
 
-        self.obs_normalizer.load_state_dict([x['obs_normalizer']
-                                             for x in states])
+        self.obs_normalizer.load_state_dict([x["obs_normalizer"] for x in states])
 
         self._train_steps = max(x["train_steps"] for x in states)
 
@@ -320,36 +351,39 @@ class DDPG(Agent):
             if err.errno != errno.EEXIST:
                 raise
 
-        args = collections.OrderedDict([
-            ('observation_space', self.observation_space),
-            ('action_space', self.action_space),
-            ('gamma', self.gamma),
-            ('tau', self.tau),
-            ('batch_size', self.batch_size),
-            ('reward_scale', self.reward_scale),
-            ('replay_buffer_size', self.replay_buffer.max_size),
-            ('actor_cls', type(self.actor)),
-            ('actor_kwargs', self._actor_kwargs),
-            ('actor_lr', self._actor_lr),
-            ('critic_cls', type(self.critic)),
-            ('critic_kwargs', self._critic_kwargs),
-            ('critic_lr', self._critic_lr),
-            ('observation_normalizer', self._obs_normalizer_arg),
-            ('observation_clip', self.obs_normalizer.clip_range),
-            ('action_noise', self._action_noise_arg),
-            ('parameter_noise', self.parameter_noise_arg)
-        ])
-        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+        args = collections.OrderedDict(
+            [
+                ("observation_space", self.observation_space),
+                ("action_space", self.action_space),
+                ("gamma", self.gamma),
+                ("tau", self.tau),
+                ("batch_size", self.batch_size),
+                ("reward_scale", self.reward_scale),
+                ("replay_buffer_size", self.replay_buffer.max_size),
+                ("actor_cls", type(self.actor)),
+                ("actor_kwargs", self._actor_kwargs),
+                ("actor_lr", self._actor_lr),
+                ("critic_cls", type(self.critic)),
+                ("critic_kwargs", self._critic_kwargs),
+                ("critic_lr", self._critic_lr),
+                ("observation_normalizer", self._obs_normalizer_arg),
+                ("observation_clip", self.obs_normalizer.clip_range),
+                ("action_noise", self._action_noise_arg),
+                ("parameter_noise", self.parameter_noise_arg),
+            ]
+        )
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), "wb"))
 
         state = self.state_dict()
         pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
 
         if replay_buffer:
-            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+            self.replay_buffer.save(os.path.join(path, "replay_buffer.h5"))
 
         if self.param_noise:
-            pickle.dump(self.param_noise,
-                        open(os.path.join(path, "param_noise.pickle"), "wb"))
+            pickle.dump(
+                self.param_noise, open(os.path.join(path, "param_noise.pickle"), "wb")
+            )
 
     @classmethod
     def load(cls, path, *args, replay_buffer=True, **kwargs):
@@ -363,7 +397,8 @@ class DDPG(Agent):
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys()))
+                max(len(x) for x in args_values.keys())
+            )
             for key, value in args_values.items():
                 _LOG.debug(fmt_string.format(key, value))
 
@@ -383,7 +418,8 @@ class DDPG(Agent):
         if instance.param_noise:
             _LOG.debug("(DDPG) Loading parameter noise")
             instance.param_noise = pickle.load(
-                open(os.path.join(path, "param_noise.pickle"), "rb"))
+                open(os.path.join(path, "param_noise.pickle"), "rb")
+            )
 
         return instance
 
@@ -391,40 +427,56 @@ class DDPG(Agent):
     ########################
 
     def _to_actor_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.action_space.low,
-                           max_x=self.action_space.high,
-                           min_out=self.actor.action_space.low,
-                           max_out=self.actor.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.action_space.low,
+            max_x=self.action_space.high,
+            min_out=self.actor.action_space.low,
+            max_out=self.actor.action_space.high,
+        )
 
     def _to_action_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.actor.action_space.low,
-                           max_x=self.actor.action_space.high,
-                           min_out=self.action_space.low,
-                           max_out=self.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.actor.action_space.low,
+            max_x=self.actor.action_space.high,
+            min_out=self.action_space.low,
+            max_out=self.action_space.high,
+        )
 
 
 #
 ###############################################################################
 
-def build_ddpg_ac(observation_space, action_space, actor_cls, actor_kwargs,
-                  critic_cls, critic_kwargs, parameter_noise):
+
+def build_ddpg_ac(
+    observation_space,
+    action_space,
+    actor_cls,
+    actor_kwargs,
+    critic_cls,
+    critic_kwargs,
+    parameter_noise,
+):
     """Builds the actor-critic architecture for the DDPG algorithm."""
     if parameter_noise:
         actor_kwargs["layer_norm"] = True
 
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs).to(_DEVICE)
+    actor = create_actor(observation_space, action_space, actor_cls, actor_kwargs).to(
+        _DEVICE
+    )
+    target_actor = create_actor(
+        observation_space, action_space, actor_cls, actor_kwargs
+    ).to(_DEVICE)
     target_actor.load_state_dict(actor.state_dict())
     target_actor.eval()
 
-    critic = create_critic(observation_space, action_space,
-                           critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic = create_critic(observation_space, action_space,
-                                  critic_cls, critic_kwargs).to(_DEVICE)
+    critic = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
+    target_critic = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
     target_critic.load_state_dict(critic.state_dict())
     target_critic.eval()
 
@@ -440,8 +492,9 @@ def _perturb_actor(actor, perturbed_actor, param_noise_std):
     for (a_name, a_param), (p_name, p_param) in zip(a_params, p_params):
         assert a_name == p_name
         if a_name in perturbable_params:
-            noise = torch.normal(mean=0, std=param_noise_std,
-                                 size=a_param.size()).to(p_param.data.device)
+            noise = torch.normal(mean=0, std=param_noise_std, size=a_param.size()).to(
+                p_param.data.device
+            )
             p_param.data.copy_(a_param.data + noise)
         else:
             p_param.data.copy_(a_param.data)

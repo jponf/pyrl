@@ -26,10 +26,15 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
-from .agents_utils import (create_action_noise, create_normalizer,
-                           create_actor, create_critic, dicts_mean)
+from pyrl.models.models_utils import soft_update
+from .agents_utils import (
+    create_action_noise,
+    create_normalizer,
+    create_actor,
+    create_critic,
+    dicts_mean,
+)
 from .core import Agent
-from .models_utils import soft_update
 from .noise import NormalActionNoise
 from .replay_buffer import FlatReplayBuffer
 
@@ -42,6 +47,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 class TD3(Agent):
     """Twin Delayed Deep Deterministic Policy Gradient Algorithm.
 
@@ -49,25 +55,27 @@ class TD3(Agent):
     Actor-Critic Methods.
     """
 
-    def __init__(self,
-                 observation_space,
-                 action_space,
-                 gamma=.95,
-                 tau=0.005,
-                 batch_size=128,
-                 reward_scale=1.0,
-                 replay_buffer_size=1000000,
-                 policy_delay=2,
-                 random_steps=1000,
-                 actor_cls=None,
-                 actor_kwargs=None,
-                 actor_lr=0.001,
-                 critic_cls=None,
-                 critic_kwargs=None,
-                 critic_lr=0.001,
-                 observation_normalizer="none",
-                 observation_clip=float('inf'),
-                 action_noise="normal_0.2"):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        gamma=0.95,
+        tau=0.005,
+        batch_size=128,
+        reward_scale=1.0,
+        replay_buffer_size=1000000,
+        policy_delay=2,
+        random_steps=1000,
+        actor_cls=None,
+        actor_kwargs=None,
+        actor_lr=0.001,
+        critic_cls=None,
+        critic_kwargs=None,
+        critic_lr=0.001,
+        observation_normalizer="none",
+        observation_clip=float("inf"),
+        action_noise="normal_0.2",
+    ):
         """
         :param observation_space: Structure of the observations returned by
             the enviornment.
@@ -126,16 +134,21 @@ class TD3(Agent):
         self.replay_buffer = FlatReplayBuffer(
             state_shape=self.observation_space.shape,
             action_shape=self.action_space.shape,
-            max_size=replay_buffer_size)
+            max_size=replay_buffer_size,
+        )
 
         self.policy_delay = policy_delay
         self.random_steps = random_steps
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = build_td3_ac(self.observation_space,
-                                                    self.action_space,
-                                                    actor_cls, actor_kwargs,
-                                                    critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_td3_ac(
+            self.observation_space,
+            self.action_space,
+            actor_cls,
+            actor_kwargs,
+            critic_cls,
+            critic_kwargs,
+        )
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
         self.critic_2, self.target_critic_2 = critics_2
@@ -145,30 +158,29 @@ class TD3(Agent):
         self._critic_kwargs = critic_kwargs
         self._critic_lr = critic_lr
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(),
-                                          lr=actor_lr)
-        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(),
-                                             lr=critic_lr)
-        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(),
-                                             lr=critic_lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(), lr=critic_lr)
+        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(), lr=critic_lr)
 
         # Normalizer
         self._obs_normalizer_arg = observation_normalizer
-        self.obs_normalizer = create_normalizer(observation_normalizer,
-                                                self.observation_space.shape,
-                                                clip_range=observation_clip)
+        self.obs_normalizer = create_normalizer(
+            observation_normalizer,
+            self.observation_space.shape,
+            clip_range=observation_clip,
+        )
 
         # Noise
         self._action_noise_arg = action_noise
         self.action_noise = create_action_noise(action_noise, action_space)
 
-        actor_space_range = (self.actor.action_space.high -
-                             self.actor.action_space.low)
+        actor_space_range = self.actor.action_space.high - self.actor.action_space.low
         self.smoothing_noise = NormalActionNoise(
             mu=np.zeros(actor_space_range.shape),
             sigma=0.1 * actor_space_range,
             clip_min=0.15 * actor_space_range,
-            clip_max=-0.15 * actor_space_range)
+            clip_max=-0.15 * actor_space_range,
+        )
 
         # Other attributes
         self._total_steps = 0
@@ -188,9 +200,13 @@ class TD3(Agent):
         action = self._to_actor_space(action)  # re-scale action
 
         self.obs_normalizer.update(state)
-        self.replay_buffer.add(state=state, action=action,
-                               next_state=next_state,
-                               reward=reward, terminal=terminal)
+        self.replay_buffer.add(
+            state=state,
+            action=action,
+            next_state=next_state,
+            reward=reward,
+            terminal=terminal,
+        )
 
     @torch.no_grad()
     def compute_action(self, state):
@@ -207,9 +223,11 @@ class TD3(Agent):
 
         # Post-process
         if self._train_mode:
-            action = np.clip(action + self.action_noise(),
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+            action = np.clip(
+                action + self.action_noise(),
+                self.actor.action_space.low,
+                self.actor.action_space.high,
+            )
 
         return self._to_action_space(action)
 
@@ -218,9 +236,13 @@ class TD3(Agent):
             super(TD3, self).train(steps, progress)
 
     def _train(self):
-        (state, action, next_state,
-         reward, terminal) = self.replay_buffer.sample_batch_torch(
-             self.batch_size, device=_DEVICE)
+        (
+            state,
+            action,
+            next_state,
+            reward,
+            terminal,
+        ) = self.replay_buffer.sample_batch_torch(self.batch_size, device=_DEVICE)
 
         next_state = self.obs_normalizer.transform(next_state)
         state = self.obs_normalizer.transform(state)
@@ -228,10 +250,12 @@ class TD3(Agent):
         # Compute critic loss (with smoothing noise)
         with torch.no_grad():
             next_action = self.target_actor(next_state).cpu().numpy()
-            np.clip(next_action + self.smoothing_noise(),
-                    self.actor.action_space.low,
-                    self.actor.action_space.high,
-                    out=next_action)
+            np.clip(
+                next_action + self.smoothing_noise(),
+                self.actor.action_space.low,
+                self.actor.action_space.high,
+                out=next_action,
+            )
             next_action = torch.from_numpy(next_action).to(_DEVICE)
 
             target_q1 = self.target_critic_1(next_state, next_action)
@@ -253,18 +277,24 @@ class TD3(Agent):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self._summary.add_scalars("Q", {"Q1": current_q1.mean(),
-                                        "Q2": current_q2.mean(),
-                                        "Target": target_q.mean()},
-                                  self._train_steps)
+        self._summary.add_scalars(
+            "Q",
+            {
+                "Q1": current_q1.mean(),
+                "Q2": current_q2.mean(),
+                "Target": target_q.mean(),
+            },
+            self._train_steps,
+        )
         self._summary.add_scalar("Loss/Critic1", loss_q1, self._train_steps)
         self._summary.add_scalar("Loss/Critic2", loss_q2, self._train_steps)
 
         # Delayed policy updates
         if ((self._train_steps + 1) % self.policy_delay) == 0:
             actor_out = self.actor(state)
-            loss_a = -torch.min(self.critic_1(state, actor_out),
-                                self.critic_2(state, actor_out)).mean()
+            loss_a = -torch.min(
+                self.critic_1(state, actor_out), self.critic_2(state, actor_out)
+            ).mean()
 
             self.actor_optimizer.zero_grad()
             loss_a.backward()
@@ -282,20 +312,22 @@ class TD3(Agent):
     ########################
 
     def state_dict(self):
-        state = {"critic1": self.critic_1.state_dict(),
-                 "critic2": self.critic_2.state_dict(),
-                 "actor": self.actor.state_dict(),
-                 "obs_normalizer": self.obs_normalizer.state_dict(),
-                 "train_steps": self._train_steps,
-                 "total_steps": self._total_steps}
+        state = {
+            "critic1": self.critic_1.state_dict(),
+            "critic2": self.critic_2.state_dict(),
+            "actor": self.actor.state_dict(),
+            "obs_normalizer": self.obs_normalizer.state_dict(),
+            "train_steps": self._train_steps,
+            "total_steps": self._total_steps,
+        }
 
         return state
 
     def load_state_dict(self, state):
-        self.critic_1.load_state_dict(state['critic1'])
-        self.target_critic_1.load_state_dict(state['critic1'])
-        self.critic_2.load_state_dict(state['critic2'])
-        self.target_critic_2.load_state_dict(state['critic2'])
+        self.critic_1.load_state_dict(state["critic1"])
+        self.target_critic_1.load_state_dict(state["critic1"])
+        self.critic_2.load_state_dict(state["critic2"])
+        self.target_critic_2.load_state_dict(state["critic2"])
         self.actor.load_state_dict(state["actor"])
         self.target_actor.load_state_dict(state["actor"])
 
@@ -305,20 +337,19 @@ class TD3(Agent):
         self._total_steps = state["total_steps"]
 
     def aggregate_state_dicts(self, states):
-        critic_1_state = dicts_mean([x['critic1'] for x in states])
+        critic_1_state = dicts_mean([x["critic1"] for x in states])
         self.critic_1.load_state_dict(critic_1_state)
         self.target_critic_1.load_state_dict(critic_1_state)
 
-        critic_2_state = dicts_mean([x['critic2'] for x in states])
+        critic_2_state = dicts_mean([x["critic2"] for x in states])
         self.critic_2.load_state_dict(critic_2_state)
         self.target_critic_2.load_state_dict(critic_2_state)
 
-        actor_state = dicts_mean([x['actor'] for x in states])
+        actor_state = dicts_mean([x["actor"] for x in states])
         self.actor.load_state_dict(actor_state)
         self.target_actor.load_state_dict(actor_state)
 
-        self.obs_normalizer.load_state_dict([x['obs_normalizer']
-                                             for x in states])
+        self.obs_normalizer.load_state_dict([x["obs_normalizer"] for x in states])
 
         self._train_steps = max(x["train_steps"] for x in states)
         self._total_steps = max(x["total_steps"] for x in states)
@@ -333,33 +364,35 @@ class TD3(Agent):
             if err.errno != errno.EEXIST:
                 raise
 
-        args = collections.OrderedDict([
-            ('observation_space', self.observation_space),
-            ('action_space', self.action_space),
-            ('gamma', self.gamma),
-            ('tau', self.tau),
-            ('batch_size', self.batch_size),
-            ('reward_scale', self.reward_scale),
-            ('replay_buffer_size', self.replay_buffer.max_size),
-            ('policy_delay', self.policy_delay),
-            ('random_steps', self.random_steps),
-            ('actor_cls', type(self.actor)),
-            ('actor_kwargs', self._actor_kwargs),
-            ('actor_lr', self._actor_lr),
-            ('critic_cls', type(self.critic_1)),
-            ('critic_kwargs', self._critic_kwargs),
-            ('critic_lr', self._critic_lr),
-            ('observation_normalizer', self._obs_normalizer_arg),
-            ('observation_clip', self.obs_normalizer.clip_range),
-            ('action_noise', self._action_noise_arg)
-        ])
-        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+        args = collections.OrderedDict(
+            [
+                ("observation_space", self.observation_space),
+                ("action_space", self.action_space),
+                ("gamma", self.gamma),
+                ("tau", self.tau),
+                ("batch_size", self.batch_size),
+                ("reward_scale", self.reward_scale),
+                ("replay_buffer_size", self.replay_buffer.max_size),
+                ("policy_delay", self.policy_delay),
+                ("random_steps", self.random_steps),
+                ("actor_cls", type(self.actor)),
+                ("actor_kwargs", self._actor_kwargs),
+                ("actor_lr", self._actor_lr),
+                ("critic_cls", type(self.critic_1)),
+                ("critic_kwargs", self._critic_kwargs),
+                ("critic_lr", self._critic_lr),
+                ("observation_normalizer", self._obs_normalizer_arg),
+                ("observation_clip", self.obs_normalizer.clip_range),
+                ("action_noise", self._action_noise_arg),
+            ]
+        )
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), "wb"))
 
         state = self.state_dict()
         pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
 
         if replay_buffer:
-            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+            self.replay_buffer.save(os.path.join(path, "replay_buffer.h5"))
 
     @classmethod
     def load(cls, path, *args, replay_buffer=True, **kwargs):
@@ -373,7 +406,8 @@ class TD3(Agent):
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys()))
+                max(len(x) for x in args_values.keys())
+            )
             for key, value in args_values.items():
                 _LOG.debug(fmt_string.format(key, value))
 
@@ -396,48 +430,61 @@ class TD3(Agent):
     ########################
 
     def _to_actor_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.action_space.low,
-                           max_x=self.action_space.high,
-                           min_out=self.actor.action_space.low,
-                           max_out=self.actor.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.action_space.low,
+            max_x=self.action_space.high,
+            min_out=self.actor.action_space.low,
+            max_out=self.actor.action_space.high,
+        )
 
     def _to_action_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.actor.action_space.low,
-                           max_x=self.actor.action_space.high,
-                           min_out=self.action_space.low,
-                           max_out=self.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.actor.action_space.low,
+            max_x=self.actor.action_space.high,
+            min_out=self.action_space.low,
+            max_out=self.action_space.high,
+        )
 
 
 #
 ###############################################################################
 
-def build_td3_ac(observation_space, action_space,
-                 actor_cls, actor_kwargs,
-                 critic_cls, critic_kwargs):
+
+def build_td3_ac(
+    observation_space, action_space, actor_cls, actor_kwargs, critic_cls, critic_kwargs
+):
     """Builds the actor-critic architecture for the TD3 algorithm."""
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs).to(_DEVICE)
-    target_actor = create_actor(observation_space, action_space,
-                                actor_cls, actor_kwargs).to(_DEVICE)
+    actor = create_actor(observation_space, action_space, actor_cls, actor_kwargs).to(
+        _DEVICE
+    )
+    target_actor = create_actor(
+        observation_space, action_space, actor_cls, actor_kwargs
+    ).to(_DEVICE)
     target_actor.load_state_dict(actor.state_dict())
     target_actor.eval()
 
-    critic_1 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
+    critic_1 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
+    target_critic_1 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
     target_critic_1.load_state_dict(critic_1.state_dict())
     target_critic_1.eval()
 
-    critic_2 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
+    critic_2 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
+    target_critic_2 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
     target_critic_2.load_state_dict(critic_2.state_dict())
     target_critic_2.eval()
 
-    return ((actor, target_actor),
-            (critic_1, target_critic_1),
-            (critic_2, target_critic_2))
+    return (
+        (actor, target_actor),
+        (critic_1, target_critic_1),
+        (critic_2, target_critic_2),
+    )

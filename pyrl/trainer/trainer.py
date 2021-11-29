@@ -10,6 +10,8 @@ import os
 import random
 import sys
 import traceback
+from pathlib import Path
+from typing import List, Optional, Type, Union
 
 # OpenAI's Gym
 import gym
@@ -18,9 +20,9 @@ import gym
 import torch
 
 # ...
-import pyrl.agents.core
 import pyrl.util.logging
 import pyrl.util.ugym
+from pyrl.agents.core import Agent, HerAgent
 
 
 ###############################################################################
@@ -36,6 +38,7 @@ mp = multiprocessing.get_context("spawn")  # pylint: disable=invalid-name
 
 ###############################################################################
 
+
 class _Message(enum.Enum):
     RUN = 0
     EXIT = 1
@@ -44,17 +47,25 @@ class _Message(enum.Enum):
 
 ###############################################################################
 
+
 class AgentTrainer(object):
     """Trains an agent and coordinates multiple agents training in paralel
     to exploit information learned by all of them.
     """
 
-    def __init__(self, agent_cls, env_name, num_envs,
-                 root_log_dir, num_cpus=1, seed=None):
+    def __init__(
+        self,
+        agent_cls: Type[Agent],
+        env_name: str,
+        num_envs: int,
+        root_log_dir: Union[str, Path],
+        num_cpus: int = 1,
+        seed: Optional[int] = None,
+    ):
         if num_cpus < 1:
             num_cpus = mp.cpu_count()
         if seed is None:
-            seed = random.randint(0, 0x7fffffff)
+            seed = random.randint(0, 0x7FFFFFFF)
 
         self._agent_cls = agent_cls
         self._env_name = env_name
@@ -66,7 +77,7 @@ class AgentTrainer(object):
         self.env = _initialize_env(self._env_name, self._agent_cls)
         self.agent = None
 
-        self._trainers = []
+        self._trainers: List[Trainer] = []
 
     def __enter__(self):
         self.start()
@@ -75,13 +86,20 @@ class AgentTrainer(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.shutdown()
 
-    def initialize_agent(self, agent_kwargs=None, agent_path="",
-                         demo_path=""):
+    def initialize_agent(
+        self,
+        agent_kwargs=None,
+        agent_path: Union[str, Path] = "",
+        demo_path: Union[str, Path] = "",
+    ):
         """Initializes the agent."""
-        self.agent = _initialize_agent(self._agent_cls, self.env,
-                                       agent_kwargs=agent_kwargs,
-                                       agent_path=agent_path,
-                                       demo_path=demo_path)
+        self.agent = _initialize_agent(
+            self._agent_cls,
+            self.env,
+            agent_kwargs=agent_kwargs,
+            agent_path=agent_path,
+            demo_path=demo_path,
+        )
 
         num_threads = 0  # let the libraries decide
         if self._num_cpus > 1:
@@ -93,11 +111,17 @@ class AgentTrainer(object):
             log_dir = os.path.join(self._root_log_dir, "env{}".format(i))
             self._trainers.append(
                 Trainer(
-                    trainer_id=i, agent_cls=self._agent_cls,
-                    env_name=self._env_name, env_module=env_module,
-                    seed=self._seed + i, num_threads=num_threads,
-                    agent_log_dir=log_dir, agent_kwargs=agent_kwargs,
-                    agent_path=agent_path, demo_path=demo_path)
+                    trainer_id=i,
+                    agent_cls=self._agent_cls,
+                    env_name=self._env_name,
+                    env_module=env_module,
+                    seed=self._seed + i,
+                    num_threads=num_threads,
+                    agent_log_dir=log_dir,
+                    agent_kwargs=agent_kwargs,
+                    agent_path=agent_path,
+                    demo_path=demo_path,
+                )
             )
 
     def start(self):
@@ -120,7 +144,7 @@ class AgentTrainer(object):
             _LOG.debug("Joining trainer %d", i)
             trainer.join()
 
-    def run(self, num_episodes, train_steps):
+    def run(self, num_episodes: int, train_steps: int):
         """Lets the agents explore for `num_episodes` before performing
         `train_steps` training steps.
 
@@ -132,8 +156,7 @@ class AgentTrainer(object):
         if not self._trainers:
             raise RuntimeError("there are no workers")
         if not all(x.is_alive() for x in self._trainers):
-            raise RuntimeError("some workers are not running, did you call"
-                               " start?")
+            raise RuntimeError("some workers are not running, did you call" " start?")
 
         self._synchronize_agents()
         self._run(num_episodes, train_steps)
@@ -158,10 +181,10 @@ class AgentTrainer(object):
                 if len(to_run) >= self._num_cpus:
                     break
 
-            _LOG.debug("Running trainers: %s",
-                       ", ".join(str(x.trainer_id) for x in to_run))
-            states = self._call_msg(_Message.RUN, (num_episodes, train_steps),
-                                    to_run)
+            _LOG.debug(
+                "Running trainers: %s", ", ".join(str(x.trainer_id) for x in to_run)
+            )
+            states = self._call_msg(_Message.RUN, (num_episodes, train_steps), to_run)
             agent_states.extend(states)
 
             for trainer in to_run:
@@ -194,11 +217,21 @@ class AgentTrainer(object):
 
 ###############################################################################
 
-class Trainer(mp.Process):
 
-    def __init__(self, trainer_id, agent_cls, env_name, env_module, seed,
-                 num_threads, agent_log_dir, agent_kwargs=None, agent_path="",
-                 demo_path=""):
+class Trainer(mp.Process):
+    def __init__(
+        self,
+        trainer_id: int,
+        agent_cls: Type[Agent],
+        env_name: str,
+        env_module,
+        seed: int,
+        num_threads: int,
+        agent_log_dir: Union[str, Path],
+        agent_kwargs=None,
+        agent_path: Union[str, Path] = "",
+        demo_path: Union[str, Path] = "",
+    ):
         super().__init__()
         self.trainer_id = trainer_id
         self.agent_cls = agent_cls
@@ -222,10 +255,13 @@ class Trainer(mp.Process):
 
         # Initialize environment and agent
         env = _initialize_env(self.env_name, self.agent_cls)
-        agent = _initialize_agent(self.agent_cls, env,
-                                  agent_kwargs=self.agent_kwargs,
-                                  agent_path=self.agent_path,
-                                  demo_path=self.demo_path)
+        agent = _initialize_agent(
+            self.agent_cls,
+            env,
+            agent_kwargs=self.agent_kwargs,
+            agent_path=self.agent_path,
+            demo_path=self.demo_path,
+        )
 
         env.seed(self.seed)
         agent.set_train_mode()
@@ -239,7 +275,7 @@ class Trainer(mp.Process):
         del env
         del agent
 
-    def _run_loop(self, agent, env):
+    def _run_loop(self, agent: Agent, env: gym.Env):
         try:
             while True:
                 msg, data = self.child_pipe.recv()
@@ -262,7 +298,7 @@ class Trainer(mp.Process):
         except KeyboardInterrupt:
             pass
 
-    def _run(self, env, agent, num_episodes, train_steps):
+    def _run(self, env: gym.Env, agent: Agent, num_episodes: int, train_steps: int):
         total_steps = 0
 
         for _ in range(num_episodes):
@@ -272,11 +308,13 @@ class Trainer(mp.Process):
             for _ in range(env.spec.max_episode_steps):
                 action = agent.compute_action(state)
                 next_state, reward, done, info = env.step(action)
-                agent.update(state=state,
-                             action=action,
-                             reward=reward,
-                             next_state=next_state,
-                             terminal=done or info.get("is_success", False))
+                agent.update(
+                    state=state,
+                    action=action,
+                    reward=reward,
+                    next_state=next_state,
+                    terminal=done or info.get("is_success", False),
+                )
                 state = next_state
 
                 total_steps += 1
@@ -296,7 +334,8 @@ class Trainer(mp.Process):
 
 ###############################################################################
 
-def _initialize_env(env_or_name, agent_cls):
+
+def _initialize_env(env_or_name: Union[gym.Env, str], agent_cls: Type[Agent]):
     if isinstance(env_or_name, gym.Env):
         env = env_or_name
     else:
@@ -311,24 +350,26 @@ def _initialize_env(env_or_name, agent_cls):
     return env
 
 
-def _initialize_agent(agent_cls, env,
-                      agent_kwargs=None, agent_path="",
-                      demo_path=""):
+def _initialize_agent(
+    agent_cls: Type[Agent],
+    env: gym.Env,
+    agent_kwargs=None,
+    agent_path: Union[str, Path] = "",
+    demo_path: Union[str, Path] = "",
+):
     if agent_kwargs is None:
         agent_kwargs = {}
 
     if agent_kwargs and agent_path:
-        raise ValueError("Only agent_kwargs or agent_path can be given"
-                         " but not both")
+        raise ValueError("Only agent_kwargs or agent_path can be given" " but not both")
 
     agent = None
-    if issubclass(agent_cls, pyrl.agents.core.Agent):
+    if issubclass(agent_cls, Agent):
         if agent_kwargs:
-            agent = agent_cls(env.observation_space, env.action_space,
-                              **agent_kwargs)
+            agent = agent_cls(env.observation_space, env.action_space, **agent_kwargs)
         elif agent_path:
             agent = agent_cls.load(agent_path)
-    elif issubclass(agent_cls, pyrl.agents.core.HerAgent):
+    elif issubclass(agent_cls, HerAgent):
         if agent_kwargs:
             agent = agent_cls(env, **agent_kwargs)
         elif agent_path:

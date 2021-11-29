@@ -28,6 +28,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 @click.command(name="ddpg-train")
 @click.argument("environment", type=str)
 @click.option("--num-epochs", type=int, default=20, show_default=True)
@@ -35,50 +36,74 @@ _LOG = pyrl.util.logging.get_logger()
 @click.option("--num-envs", type=int, default=1, show_default=True)
 @click.option("--num-evals", type=int, default=1, show_default=True)
 @click.option("--num-cpus", type=int, default=1, show_default=True)
-@click.option("--gamma", type=float, default=.99, show_default=True,
-              help="Discount factor")
-@click.option("--tau", type=float, default=.001, show_default=True,
-              help="Polyak averaging")
+@click.option(
+    "--gamma", type=float, default=0.99, show_default=True, help="Discount factor"
+)
+@click.option(
+    "--tau", type=float, default=0.001, show_default=True, help="Polyak averaging"
+)
 @click.option("--batch-size", type=int, default=128, show_default=True)
 @click.option("--replay-buffer", type=int, default=1000000, show_default=True)
 @click.option("--reward-scale", type=float, default=1.0, show_default=True)
-@click.option("--action-noise", type=str, show_default=True, default="ou_0.2",
-              help="Action noise, it can be 'none' or name_std, for example:"
-                   " ou_0.2 or normal_0.1.")
+@click.option(
+    "--action-noise",
+    type=str,
+    show_default=True,
+    default="ou_0.2",
+    help="Action noise, it can be 'none' or name_std, for example:"
+    " ou_0.2 or normal_0.1.",
+)
 @click.option("--parameter-noise", type=float, default=0.0, show_default=True)
-@click.option("--obs-normalizer", type=click.Choice(["none", "standard"]),
-              show_default=True, default="standard",
-              help="If set to none, the observations won't be normalized")
-@click.option("--obs-clip", type=float, default=5.0, show_default=True,
-              help="Min/Max. value to clip the observations to if they are"
-                   " being normalized.")
+@click.option(
+    "--obs-normalizer",
+    type=click.Choice(["none", "standard"]),
+    show_default=True,
+    default="standard",
+    help="If set to none, the observations won't be normalized",
+)
+@click.option(
+    "--obs-clip",
+    type=float,
+    default=5.0,
+    show_default=True,
+    help="Min/Max. value to clip the observations to if they are" " being normalized.",
+)
 @click.option("--render/--no-render", show_default=True, default=False)
 @click.option("--load", type=click.Path(exists=True, dir_okay=True))
-@click.option("--save", type=click.Path(), show_default=True,
-              default="checkpoints/ddpg")
+@click.option(
+    "--save", type=click.Path(), show_default=True, default="checkpoints/ddpg"
+)
 @click.option("--seed", type=int, default=int(time.time()))
-def cli_ddpg_train(environment,
-                   num_epochs,
-                   num_episodes,
-                   num_envs,
-                   num_evals,
-                   num_cpus,
-                   gamma,
-                   tau,
-                   batch_size,
-                   replay_buffer,
-                   reward_scale,
-                   action_noise,
-                   parameter_noise,
-                   obs_normalizer,
-                   obs_clip,
-                   render,
-                   load, save, seed):
+def cli_ddpg_train(
+    environment,
+    num_epochs,
+    num_episodes,
+    num_envs,
+    num_evals,
+    num_cpus,
+    gamma,
+    tau,
+    batch_size,
+    replay_buffer,
+    reward_scale,
+    action_noise,
+    parameter_noise,
+    obs_normalizer,
+    obs_clip,
+    render,
+    load,
+    save,
+    seed,
+):
     """Trains a DDPG agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.DDPG, env_name=environment,
-        seed=seed, num_envs=num_envs, num_cpus=num_cpus,
-        root_log_dir=os.path.join(save, "log"))
+        agent_cls=pyrl.agents.DDPG,
+        env_name=environment,
+        seed=seed,
+        num_envs=num_envs,
+        num_cpus=num_cpus,
+        root_log_dir=os.path.join(save, "log"),
+    )
     pyrl.cli.util.initialize_seed(seed)
     trainer.env.seed(seed)
 
@@ -88,17 +113,19 @@ def cli_ddpg_train(environment,
     else:
         _LOG.info("Initializing new agent")
         trainer.initialize_agent(
-            agent_kwargs=dict(gamma=gamma,
-                              tau=tau,
-                              batch_size=batch_size,
-                              reward_scale=reward_scale,
-                              replay_buffer_size=replay_buffer,
-                              actor_lr=1e-3,
-                              critic_lr=1e-3,
-                              observation_normalizer=obs_normalizer,
-                              observation_clip=obs_clip,
-                              action_noise=action_noise,
-                              parameter_noise=parameter_noise)
+            agent_kwargs=dict(
+                gamma=gamma,
+                tau=tau,
+                batch_size=batch_size,
+                reward_scale=reward_scale,
+                replay_buffer_size=replay_buffer,
+                actor_lr=1e-3,
+                critic_lr=1e-3,
+                observation_normalizer=obs_normalizer,
+                observation_clip=obs_clip,
+                action_noise=action_noise,
+                parameter_noise=parameter_noise,
+            )
         )
 
     _LOG.info("Agent Data")
@@ -112,7 +139,7 @@ def cli_ddpg_train(environment,
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
 
-    if render:                # Some environments must be rendered
+    if render:  # Some environments must be rendered
         trainer.env.render()  # before running
 
     with trainer:
@@ -148,13 +175,13 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
 def _run_train_epoch(trainer, epoch, num_episodes, save_path):
     for episode in six.moves.range(1, num_episodes + 1):
         episode_start_time = time.time()
-        _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]",
-                  episode, num_episodes, epoch)
+        _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]", episode, num_episodes, epoch)
         trainer.run(num_episodes=1, train_steps=0)
         _LOG.info("Elapsed: %.2fs", time.time() - episode_start_time)
 
 
 ###############################################################################
+
 
 @click.command("ddpg-test")
 @click.argument("environment", type=str)
@@ -185,28 +212,37 @@ def cli_ddpg_test(environment, agent_path, num_episodes, seed):
 
     env.close()
     sum_score = sum(x.sum() for x in all_rewards)
-    _LOG.info("Average sum score over %d runs: %d",
-              len(all_rewards), sum_score / len(all_rewards))
+    _LOG.info(
+        "Average sum score over %d runs: %d",
+        len(all_rewards),
+        sum_score / len(all_rewards),
+    )
 
     sys.exit(0)
 
 
 ###############################################################################
 
+
 def _evaluate(agent, env, num_evals, render):
     all_rewards = []
 
     for _ in six.moves.range(num_evals):
         rewards, infos, done = pyrl.cli.util.evaluate(
-            agent, env, env.spec.max_episode_steps, render)
+            agent, env, env.spec.max_episode_steps, render
+        )
 
         all_rewards.append(rewards)
         if done:
             _LOG.info("[DONE]")
 
-        _LOG.info("Last reward: %.5f, Sum reward: %.5f,"
-                  " Avg. reward: %.5f, Std. reward: %.5f",
-                  rewards[-1], np.sum(rewards),
-                  np.mean(rewards), np.std(rewards))
+        _LOG.info(
+            "Last reward: %.5f, Sum reward: %.5f,"
+            " Avg. reward: %.5f, Std. reward: %.5f",
+            rewards[-1],
+            np.sum(rewards),
+            np.mean(rewards),
+            np.std(rewards),
+        )
 
     return all_rewards

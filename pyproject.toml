@@ -1,3 +1,15 @@
+[tool.black]
+line-length = 88
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # The following are specific to Black, you probably don't want those.
+  | blib2to3
+  | tests/data
+  | profiling
+)/
+'''
+
 [tool.mypy]
 ignore_missing_imports = true
 
@@ -9,16 +21,18 @@ authors = ["Josep Pon Farreny <jponfarreny@gmail.com>, Guillem Orellana Trullols
 license = "Apache Version 2.0"
 
 [tool.poetry.dependencies]
-python = "^3.6.2"
+python = "^3.6.2,<3.10"
 click = ">=6.0"
 gym = "^0.15.4"
 h5py = "^3.0.0"
 six = "^1.0.0"
-tensorflow = "^2.4,!=2.6.1"
+tensorflow = "^2.4"
 torch = "^1.8.2"
 tqdm = "^4.46.0"
 
 [tool.poetry.dev-dependencies]
+black = "^21.11b1"
+mypy = "^0.910"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

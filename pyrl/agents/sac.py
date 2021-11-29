@@ -25,10 +25,9 @@ import torch.nn.functional as F
 import pyrl.util.logging
 import pyrl.util.umath as umath
 
-from .agents_utils import (create_normalizer,
-                           create_actor, create_critic, dicts_mean)
+from pyrl.models.models_utils import soft_update
+from .agents_utils import create_normalizer, create_actor, create_critic, dicts_mean
 from .core import Agent
-from .models_utils import soft_update
 from .replay_buffer import FlatReplayBuffer
 
 
@@ -40,6 +39,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 class SAC(Agent):
     """Soft Actor Critic.
 
@@ -47,25 +47,27 @@ class SAC(Agent):
     Learning with a Stochastic Actor.
     """
 
-    def __init__(self,
-                 observation_space,
-                 action_space,
-                 alpha=0.2,
-                 gamma=.95,
-                 tau=0.005,
-                 batch_size=128,
-                 reward_scale=1.0,
-                 replay_buffer_size=1000000,
-                 random_steps=1000,
-                 actor_cls=None,
-                 actor_kwargs=None,
-                 actor_lr=0.001,
-                 critic_cls=None,
-                 critic_kwargs=None,
-                 critic_lr=0.001,
-                 tune_alpha=True,
-                 observation_normalizer="none",
-                 observation_clip=float('inf')):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        alpha=0.2,
+        gamma=0.95,
+        tau=0.005,
+        batch_size=128,
+        reward_scale=1.0,
+        replay_buffer_size=1000000,
+        random_steps=1000,
+        actor_cls=None,
+        actor_kwargs=None,
+        actor_lr=0.001,
+        critic_cls=None,
+        critic_kwargs=None,
+        critic_lr=0.001,
+        tune_alpha=True,
+        observation_normalizer="none",
+        observation_clip=float("inf"),
+    ):
         """
         :param observation_space: Structure of the observations returned by
             the enviornment.
@@ -119,32 +121,36 @@ class SAC(Agent):
         self.replay_buffer = FlatReplayBuffer(
             state_shape=self.observation_space.shape,
             action_shape=self.action_space.shape,
-            max_size=replay_buffer_size)
+            max_size=replay_buffer_size,
+        )
 
         self.random_steps = random_steps
 
         # Build model (AC architecture)
-        (self.actor,
-         (self.critic_1, self.target_critic_1),
-         (self.critic_2, self.target_critic_2)) = build_sac_ac(
-             self.observation_space, self.action_space,
-             actor_cls, actor_kwargs, critic_cls, critic_kwargs)
+        (
+            self.actor,
+            (self.critic_1, self.target_critic_1),
+            (self.critic_2, self.target_critic_2),
+        ) = build_sac_ac(
+            self.observation_space,
+            self.action_space,
+            actor_cls,
+            actor_kwargs,
+            critic_cls,
+            critic_kwargs,
+        )
 
         self._actor_kwargs = actor_kwargs
         self._actor_lr = actor_lr
         self._critic_kwargs = critic_kwargs
         self._critic_lr = critic_lr
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(),
-                                          lr=actor_lr)
-        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(),
-                                             lr=critic_lr)
-        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(),
-                                             lr=critic_lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(), lr=critic_lr)
+        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(), lr=critic_lr)
 
         # Autotune alpha
-        self.target_entropy = -torch.prod(
-            torch.Tensor(action_space.shape)).item()
+        self.target_entropy = -torch.prod(torch.Tensor(action_space.shape)).item()
         self._log_alpha = torch.as_tensor(alpha, dtype=torch.float32).log()
         if tune_alpha:
             self._log_alpha.requires_grad_()
@@ -154,9 +160,11 @@ class SAC(Agent):
 
         # Normalizer
         self._obs_normalizer_arg = observation_normalizer
-        self.obs_normalizer = create_normalizer(observation_normalizer,
-                                                self.observation_space.shape,
-                                                clip_range=observation_clip)
+        self.obs_normalizer = create_normalizer(
+            observation_normalizer,
+            self.observation_space.shape,
+            clip_range=observation_clip,
+        )
 
         # Other attributes
         self._total_steps = 0
@@ -182,9 +190,13 @@ class SAC(Agent):
         action = self._to_actor_space(action)  # re-scale action
 
         self.obs_normalizer.update(state)
-        self.replay_buffer.add(state=state, action=action,
-                               next_state=next_state,
-                               reward=reward, terminal=terminal)
+        self.replay_buffer.add(
+            state=state,
+            action=action,
+            next_state=next_state,
+            reward=reward,
+            terminal=terminal,
+        )
 
     @torch.no_grad()
     def compute_action(self, state):
@@ -207,9 +219,13 @@ class SAC(Agent):
             super(SAC, self).train(steps, progress)
 
     def _train(self):
-        (states, actions, next_states,
-         rewards, terminals) = self.replay_buffer.sample_batch_torch(
-             self.batch_size, device=_DEVICE)
+        (
+            states,
+            actions,
+            next_states,
+            rewards,
+            terminals,
+        ) = self.replay_buffer.sample_batch_torch(self.batch_size, device=_DEVICE)
 
         next_states = self.obs_normalizer.transform(next_states)
         states = self.obs_normalizer.transform(states)
@@ -253,8 +269,9 @@ class SAC(Agent):
 
     def _train_policy(self, states):
         actor_out, log_pi = self.actor.sample(states)
-        min_q = torch.min(self.critic_1(states, actor_out),
-                          self.critic_2(states, actor_out))
+        min_q = torch.min(
+            self.critic_1(states, actor_out), self.critic_2(states, actor_out)
+        )
 
         # Jπ = 𝔼st∼D,εt∼N[α * log π(f(εt;st)|st) − Q(st,f(εt;st))]
         loss_a = (self.alpha * log_pi - min_q).mean()
@@ -265,30 +282,30 @@ class SAC(Agent):
 
         with torch.no_grad():
             self._summary.add_scalar("Loss/Policy", loss_a, self._train_steps)
-            self._summary.add_scalar("Stats/LogProb", log_pi.mean(),
-                                     self._train_steps)
-            self._summary.add_scalar("Stats/Alpha", self.alpha,
-                                     self._train_steps)
+            self._summary.add_scalar("Stats/LogProb", log_pi.mean(), self._train_steps)
+            self._summary.add_scalar("Stats/Alpha", self.alpha, self._train_steps)
 
             means_logs = zip(actor_out.mean(dim=0), log_pi)
             for i, (mean, log) in enumerate(means_logs):
-                self._summary.add_scalar(f"Action/Mean_{i}", mean,
-                                         self._train_steps)
-                self._summary.add_scalar(f"Action/Prob_{i}", log / len(states),
-                                         self._train_steps)
+                self._summary.add_scalar(f"Action/Mean_{i}", mean, self._train_steps)
+                self._summary.add_scalar(
+                    f"Action/Prob_{i}", log / len(states), self._train_steps
+                )
 
     def _train_alpha(self, states):
         if self._alpha_optim is not None:
             _, log_pi = self.actor.sample(states)
-            alpha_loss = (self._log_alpha *
-                          (-log_pi - self.target_entropy).detach()).mean()
+            alpha_loss = (
+                self._log_alpha * (-log_pi - self.target_entropy).detach()
+            ).mean()
 
             self._alpha_optim.zero_grad()
             alpha_loss.backward()
             self._alpha_optim.step()
 
             self._summary.add_scalar(
-                'Loss/Alpha', alpha_loss.detach(), self._train_steps)
+                "Loss/Alpha", alpha_loss.detach(), self._train_steps
+            )
 
     def _update_target_networks(self):
         soft_update(self.critic_1, self.target_critic_1, self.tau)
@@ -298,21 +315,23 @@ class SAC(Agent):
     ########################
 
     def state_dict(self):
-        state = {"critic1": self.critic_1.state_dict(),
-                 "critic2": self.critic_2.state_dict(),
-                 "actor": self.actor.state_dict(),
-                 "log_alpha": self._log_alpha,
-                 "obs_normalizer": self.obs_normalizer.state_dict(),
-                 "train_steps": self._train_steps,
-                 "total_steps": self._total_steps}
+        state = {
+            "critic1": self.critic_1.state_dict(),
+            "critic2": self.critic_2.state_dict(),
+            "actor": self.actor.state_dict(),
+            "log_alpha": self._log_alpha,
+            "obs_normalizer": self.obs_normalizer.state_dict(),
+            "train_steps": self._train_steps,
+            "total_steps": self._total_steps,
+        }
 
         return state
 
     def load_state_dict(self, state):
-        self.critic_1.load_state_dict(state['critic1'])
-        self.target_critic_1.load_state_dict(state['critic1'])
-        self.critic_2.load_state_dict(state['critic2'])
-        self.target_critic_2.load_state_dict(state['critic2'])
+        self.critic_1.load_state_dict(state["critic1"])
+        self.target_critic_1.load_state_dict(state["critic1"])
+        self.critic_2.load_state_dict(state["critic2"])
+        self.target_critic_2.load_state_dict(state["critic2"])
         self.actor.load_state_dict(state["actor"])
 
         with torch.no_grad():
@@ -324,23 +343,22 @@ class SAC(Agent):
         self._total_steps = state["total_steps"]
 
     def aggregate_state_dicts(self, states):
-        critic_1_state = dicts_mean([x['critic1'] for x in states])
+        critic_1_state = dicts_mean([x["critic1"] for x in states])
         self.critic_1.load_state_dict(critic_1_state)
         self.target_critic_1.load_state_dict(critic_1_state)
 
-        critic_2_state = dicts_mean([x['critic2'] for x in states])
+        critic_2_state = dicts_mean([x["critic2"] for x in states])
         self.critic_2.load_state_dict(critic_2_state)
         self.target_critic_2.load_state_dict(critic_2_state)
 
-        actor_state = dicts_mean([x['actor'] for x in states])
+        actor_state = dicts_mean([x["actor"] for x in states])
         self.actor.load_state_dict(actor_state)
 
         with torch.no_grad():
             self._log_alpha.copy_(sum(x["log_alpha"] for x in states))
             self._log_alpha.div_(len(states))
 
-        self.obs_normalizer.load_state_dict([x['obs_normalizer']
-                                             for x in states])
+        self.obs_normalizer.load_state_dict([x["obs_normalizer"] for x in states])
 
         self._train_steps = max(x["train_steps"] for x in states)
         self._total_steps = max(x["total_steps"] for x in states)
@@ -355,33 +373,35 @@ class SAC(Agent):
             if err.errno != errno.EEXIST:
                 raise
 
-        args = collections.OrderedDict([
-            ('observation_space', self.observation_space),
-            ('action_space', self.action_space),
-            ('alpha', self.alpha.item()),
-            ('gamma', self.gamma),
-            ('tau', self.tau),
-            ('batch_size', self.batch_size),
-            ('reward_scale', self.reward_scale),
-            ('replay_buffer_size', self.replay_buffer.max_size),
-            ('random_steps', self.random_steps),
-            ('actor_cls', type(self.actor)),
-            ('actor_kwargs', self._actor_kwargs),
-            ('actor_lr', self._actor_lr),
-            ('critic_cls', type(self.critic_1)),
-            ('critic_kwargs', self._critic_kwargs),
-            ('critic_lr', self._critic_lr),
-            ('tune_alpha', self._alpha_optim is not None),
-            ('observation_normalizer', self._obs_normalizer_arg),
-            ('observation_clip', self.obs_normalizer.clip_range),
-        ])
-        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+        args = collections.OrderedDict(
+            [
+                ("observation_space", self.observation_space),
+                ("action_space", self.action_space),
+                ("alpha", self.alpha.item()),
+                ("gamma", self.gamma),
+                ("tau", self.tau),
+                ("batch_size", self.batch_size),
+                ("reward_scale", self.reward_scale),
+                ("replay_buffer_size", self.replay_buffer.max_size),
+                ("random_steps", self.random_steps),
+                ("actor_cls", type(self.actor)),
+                ("actor_kwargs", self._actor_kwargs),
+                ("actor_lr", self._actor_lr),
+                ("critic_cls", type(self.critic_1)),
+                ("critic_kwargs", self._critic_kwargs),
+                ("critic_lr", self._critic_lr),
+                ("tune_alpha", self._alpha_optim is not None),
+                ("observation_normalizer", self._obs_normalizer_arg),
+                ("observation_clip", self.obs_normalizer.clip_range),
+            ]
+        )
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), "wb"))
 
         state = self.state_dict()
         pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
 
         if replay_buffer:
-            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+            self.replay_buffer.save(os.path.join(path, "replay_buffer.h5"))
 
     @classmethod
     def load(cls, path, *args, replay_buffer=True, **kwargs):
@@ -395,7 +415,8 @@ class SAC(Agent):
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys()))
+                max(len(x) for x in args_values.keys())
+            )
             for key, value in args_values.items():
                 _LOG.debug(fmt_string.format(key, value))
 
@@ -418,45 +439,52 @@ class SAC(Agent):
     ########################
 
     def _to_actor_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.action_space.low,
-                           max_x=self.action_space.high,
-                           min_out=self.actor.action_space.low,
-                           max_out=self.actor.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.action_space.low,
+            max_x=self.action_space.high,
+            min_out=self.actor.action_space.low,
+            max_out=self.actor.action_space.high,
+        )
 
     def _to_action_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.actor.action_space.low,
-                           max_x=self.actor.action_space.high,
-                           min_out=self.action_space.low,
-                           max_out=self.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.actor.action_space.low,
+            max_x=self.actor.action_space.high,
+            min_out=self.action_space.low,
+            max_out=self.action_space.high,
+        )
 
 
 #
 ###############################################################################
 
-def build_sac_ac(observation_space, action_space,
-                 actor_cls, actor_kwargs,
-                 critic_cls, critic_kwargs):
-    """Builds the actor-critic architecture for the SAC algorithm."""
-    actor = create_actor(observation_space, action_space,
-                         actor_cls, actor_kwargs,
-                         policy="gaussian").to(_DEVICE)
 
-    critic_1 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_1 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
+def build_sac_ac(
+    observation_space, action_space, actor_cls, actor_kwargs, critic_cls, critic_kwargs
+):
+    """Builds the actor-critic architecture for the SAC algorithm."""
+    actor = create_actor(
+        observation_space, action_space, actor_cls, actor_kwargs, policy="gaussian"
+    ).to(_DEVICE)
+
+    critic_1 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
+    target_critic_1 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
     target_critic_1.load_state_dict(critic_1.state_dict())
     target_critic_1.eval()
 
-    critic_2 = create_critic(observation_space, action_space,
-                             critic_cls, critic_kwargs).to(_DEVICE)
-    target_critic_2 = create_critic(observation_space, action_space,
-                                    critic_cls, critic_kwargs).to(_DEVICE)
+    critic_2 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
+    target_critic_2 = create_critic(
+        observation_space, action_space, critic_cls, critic_kwargs
+    ).to(_DEVICE)
     target_critic_2.load_state_dict(critic_2.state_dict())
     target_critic_2.eval()
 
-    return (actor,
-            (critic_1, target_critic_1),
-            (critic_2, target_critic_2))
+    return (actor, (critic_1, target_critic_1), (critic_2, target_critic_2))

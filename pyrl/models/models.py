@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+from __future__ import absolute_import, print_function, division, unicode_literals
 
 # SciPy
 import numpy as np
@@ -18,22 +17,27 @@ from . import models_utils
 
 ###############################################################################
 
+
 class CriticMLP(nn.Module):
     """Critic implemented as a Multi-layer Perceptron."""
 
-    def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+    ):
         assert hidden_layers > 0
         assert hidden_size > 0
         super(CriticMLP, self).__init__()
 
         if len(observation_space.shape) > 1:
-            raise ValueError('MLP observation space must have a single'
-                             ' dimension')
+            raise ValueError("MLP observation space must have a single" " dimension")
         if len(action_space.shape) > 1:
-            raise ValueError('MLP action space must have a single'
-                             ' dimension')
+            raise ValueError("MLP action space must have a single" " dimension")
 
         input_size = observation_space.shape[0] + action_space.shape[0]
         hidden_layers_size = [hidden_size] * hidden_layers
@@ -43,7 +47,8 @@ class CriticMLP(nn.Module):
             hidden_layers=hidden_layers_size,
             layer_norm=layer_norm,
             activation=activation,
-            last_activation=None)
+            last_activation=None,
+        )
 
     def forward(self, states, actions):  # pylint: disable=arguments-differ
         return self.network(torch.cat((states, actions), dim=1))
@@ -68,19 +73,23 @@ class TwinnedCritic(nn.Module):
 class PolicyMLP(nn.Module):
     """Deterministic actor implemented as a Multi-layer Perceptron."""
 
-    def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+    ):
         assert hidden_layers >= 0
         assert hidden_size > 0
         super(PolicyMLP, self).__init__()
 
         if len(observation_space.shape) > 1:
-            raise ValueError('MLP observation space must have a single'
-                             ' dimension')
+            raise ValueError("MLP observation space must have a single" " dimension")
         if len(action_space.shape) > 1:
-            raise ValueError('MLP action space must have a single'
-                             ' dimension')
+            raise ValueError("MLP action space must have a single" " dimension")
 
         input_size = observation_space.shape[0]
         output_size = action_space.shape[0]
@@ -90,7 +99,8 @@ class PolicyMLP(nn.Module):
         self.action_space = gym.spaces.Box(
             low=np.repeat(-1.0, output_size).astype(np.float32, copy=False),
             high=np.repeat(1.0, output_size).astype(np.float32, copy=False),
-            dtype=np.float32)
+            dtype=np.float32,
+        )
 
         self.network = models_utils.create_mlp(
             input_size=input_size,
@@ -98,33 +108,37 @@ class PolicyMLP(nn.Module):
             hidden_layers=hidden_layers_size,
             layer_norm=layer_norm,
             activation=activation,
-            last_activation="tanh")
+            last_activation="tanh",
+        )
 
     def forward(self, states):  # pylint: disable=arguments-differ
         return self.network(states)
 
     def get_perturbable_parameters(self):
-        return [x for x, _ in self.named_parameters()
-                if 'norm' not in x]
+        return [x for x, _ in self.named_parameters() if "norm" not in x]
 
 
 class GaussianPolicyMLP(nn.Module):
-
-    def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False,
-                 log_std_max=2, log_std_min=-20,
-                 epsilon=1e-6):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+        log_std_max=2,
+        log_std_min=-20,
+        epsilon=1e-6,
+    ):
         assert hidden_layers >= 0
         assert hidden_size > 0
         super(GaussianPolicyMLP, self).__init__()
 
         if len(observation_space.shape) > 1:
-            raise ValueError('MLP observation space must have a single'
-                             ' dimension')
+            raise ValueError("MLP observation space must have a single" " dimension")
         if len(action_space.shape) > 1:
-            raise ValueError('MLP action space must have a single'
-                             ' dimension')
+            raise ValueError("MLP action space must have a single" " dimension")
         if log_std_max < log_std_min:
             raise ValueError("log_std_max must be >= than log_std_min")
 
@@ -136,7 +150,8 @@ class GaussianPolicyMLP(nn.Module):
         self.action_space = gym.spaces.Box(
             low=np.repeat(-1.0, output_size).astype(np.float32, copy=False),
             high=np.repeat(1.0, output_size).astype(np.float32, copy=False),
-            dtype=np.float32)
+            dtype=np.float32,
+        )
 
         self.network = models_utils.create_mlp(
             input_size=input_size,
@@ -144,14 +159,14 @@ class GaussianPolicyMLP(nn.Module):
             hidden_layers=hidden_layers_size,
             layer_norm=layer_norm,
             activation=activation,
-            last_activation=None)
+            last_activation=None,
+        )
 
         self.log_std_max = log_std_max
         self.log_std_min = log_std_min
         self.epsilon = epsilon
 
-    def forward(self, states,          # pylint: disable=arguments-differ
-                deterministic=False):
+    def forward(self, states, deterministic=False):  # pylint: disable=arguments-differ
         mean, log_std = torch.chunk(self.network(states), 2, dim=-1)
         log_std.clamp_(min=self.log_std_min, max=self.log_std_max)
         normal = torch.distributions.Normal(mean, log_std.exp())
@@ -168,6 +183,7 @@ class GaussianPolicyMLP(nn.Module):
 
 ###############################################################################
 
+
 class HerCriticMLP(CriticMLP):
     """Utility wrapper to use the `Critic` class in Hindsigh
     Expirience Replay (HER) agents.
@@ -177,31 +193,47 @@ class HerCriticMLP(CriticMLP):
     are forwarded to the `Critic.__init__`.
     """
 
-    def __init__(self, observation_space, action_space,
-                 *args,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False,
-                 **kwargs):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        *args,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+        **kwargs
+    ):
         if not isinstance(observation_space, gym.spaces.Dict):
-            raise TypeError("Hindsight Experience Replay critic expects a"
-                            " gym.spaces.Dict observation space")
+            raise TypeError(
+                "Hindsight Experience Replay critic expects a"
+                " gym.spaces.Dict observation space"
+            )
 
-        obs_space = observation_space['observation']
-        goal_space = observation_space['desired_goal']
+        obs_space = observation_space["observation"]
+        goal_space = observation_space["desired_goal"]
         flat_obs_space = gym.spaces.Box(
             low=np.concatenate((obs_space.low, goal_space.low)),
             high=np.concatenate((obs_space.high, goal_space.high)),
-            dtype=obs_space.dtype)
+            dtype=obs_space.dtype,
+        )
 
-        super(HerCriticMLP, self).__init__(flat_obs_space, action_space,
-                                           hidden_layers, hidden_size,
-                                           activation, layer_norm,
-                                           *args, **kwargs)
+        super(HerCriticMLP, self).__init__(
+            flat_obs_space,
+            action_space,
+            hidden_layers,
+            hidden_size,
+            activation,
+            layer_norm,
+            *args,
+            **kwargs
+        )
 
     # pylint: disable=arguments-differ
     def forward(self, obs, goals, actions):
         return super(HerCriticMLP, self).forward(
-            states=torch.cat((obs, goals), dim=1), actions=actions)
+            states=torch.cat((obs, goals), dim=1), actions=actions
+        )
 
 
 class HerPolicyMLP(nn.Module):
@@ -213,24 +245,38 @@ class HerPolicyMLP(nn.Module):
     are forwarded to the `PolicyMLP.__init__`.
     """
 
-    def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False,):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+    ):
         super(HerPolicyMLP, self).__init__()
         if not isinstance(observation_space, gym.spaces.Dict):
-            raise TypeError("Hindsight Experience Replay actor expects a"
-                            " gym.spaces.Dict observation space")
+            raise TypeError(
+                "Hindsight Experience Replay actor expects a"
+                " gym.spaces.Dict observation space"
+            )
 
-        obs_space = observation_space['observation']
-        goal_space = observation_space['desired_goal']
+        obs_space = observation_space["observation"]
+        goal_space = observation_space["desired_goal"]
         flat_obs_space = gym.spaces.Box(
             low=np.concatenate((obs_space.low, goal_space.low)),
             high=np.concatenate((obs_space.high, goal_space.high)),
-            dtype=obs_space.dtype)
+            dtype=obs_space.dtype,
+        )
 
-        self._policy = PolicyMLP(flat_obs_space, action_space,
-                                 hidden_layers, hidden_size,
-                                 activation, layer_norm)
+        self._policy = PolicyMLP(
+            flat_obs_space,
+            action_space,
+            hidden_layers,
+            hidden_size,
+            activation,
+            layer_norm,
+        )
 
     @property
     def action_space(self):
@@ -250,37 +296,53 @@ class HerGaussianPolicyMLP(nn.Module):
     are forwarded to the `PolicyMLP.__init__`.
     """
 
-    def __init__(self, observation_space, action_space,
-                 hidden_layers=3, hidden_size=256,
-                 activation="relu", layer_norm=False,
-                 log_std_max=2, log_std_min=-20,
-                 epsilon=1e-6):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        hidden_layers=3,
+        hidden_size=256,
+        activation="relu",
+        layer_norm=False,
+        log_std_max=2,
+        log_std_min=-20,
+        epsilon=1e-6,
+    ):
         super(HerGaussianPolicyMLP, self).__init__()
         if not isinstance(observation_space, gym.spaces.Dict):
-            raise TypeError("Hindsight Experience Replay actor expects a"
-                            " gym.spaces.Dict observation space")
+            raise TypeError(
+                "Hindsight Experience Replay actor expects a"
+                " gym.spaces.Dict observation space"
+            )
 
-        obs_space = observation_space['observation']
-        goal_space = observation_space['desired_goal']
+        obs_space = observation_space["observation"]
+        goal_space = observation_space["desired_goal"]
         flat_obs_space = gym.spaces.Box(
             low=np.concatenate((obs_space.low, goal_space.low)),
             high=np.concatenate((obs_space.high, goal_space.high)),
-            dtype=obs_space.dtype)
+            dtype=obs_space.dtype,
+        )
 
         self._policy = GaussianPolicyMLP(
-            observation_space=flat_obs_space, action_space=action_space,
-            hidden_layers=hidden_layers, hidden_size=hidden_size,
-            activation=activation, layer_norm=layer_norm,
-            log_std_max=log_std_max, log_std_min=log_std_min,
-            epsilon=epsilon)
+            observation_space=flat_obs_space,
+            action_space=action_space,
+            hidden_layers=hidden_layers,
+            hidden_size=hidden_size,
+            activation=activation,
+            layer_norm=layer_norm,
+            log_std_max=log_std_max,
+            log_std_min=log_std_min,
+            epsilon=epsilon,
+        )
 
     @property
     def action_space(self):
         """Actor action space."""
         return self._policy.action_space
 
-    def forward(self, obs, goals,      # pylint: disable=arguments-differ
-                deterministic=False):
+    def forward(
+        self, obs, goals, deterministic=False  # pylint: disable=arguments-differ
+    ):
         return self._policy.forward(
-            states=torch.cat((obs, goals), dim=1),
-            deterministic=deterministic)
+            states=torch.cat((obs, goals), dim=1), deterministic=deterministic
+        )

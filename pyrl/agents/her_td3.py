@@ -22,15 +22,20 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-# robotrl
+# ...
 import pyrl.util.logging
 import pyrl.util.umath as umath
 import pyrl.util.ugym
 
-from .agents_utils import (create_action_noise, create_normalizer,
-                           dicts_mean, load_her_demonstrations)
+from pyrl.models.models_utils import soft_update
+
+from .agents_utils import (
+    create_action_noise,
+    create_normalizer,
+    dicts_mean,
+    load_her_demonstrations,
+)
 from .core import HerAgent
-from .models_utils import soft_update
 from .noise import NormalActionNoise
 from .replay_buffer import HerReplayBuffer
 from .td3 import build_td3_ac
@@ -44,6 +49,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 class HerTD3(HerAgent):
     """Hindsight Experience Replay Agent that uses Twin Delayed Deep
     Deterministic Policy Gradient (TD3) as the off-policy RL algorithm.
@@ -53,32 +59,34 @@ class HerTD3(HerAgent):
         TD3: Addressing Function Approximation Error in Actor-Critic Methods.
     """
 
-    def __init__(self,
-                 env,
-                 eps_greedy=0.2,
-                 gamma=0.95,
-                 tau=0.005,
-                 batch_size=128,
-                 reward_scale=1.0,
-                 replay_buffer_episodes=10000,
-                 replay_buffer_steps=100,
-                 policy_delay=2,
-                 random_steps=1000,
-                 replay_k=2,
-                 demo_batch_size=128,
-                 q_filter=True,
-                 action_penalty=1.0,
-                 prm_loss_weight=0.001,
-                 aux_loss_weight=None,
-                 actor_cls=None,
-                 actor_kwargs=None,
-                 actor_lr=0.001,
-                 critic_cls=None,
-                 critic_kwargs=None,
-                 critic_lr=0.001,
-                 observation_normalizer="none",
-                 observation_clip=float('inf'),
-                 action_noise="normal_0.2"):
+    def __init__(
+        self,
+        env,
+        eps_greedy=0.2,
+        gamma=0.95,
+        tau=0.005,
+        batch_size=128,
+        reward_scale=1.0,
+        replay_buffer_episodes=10000,
+        replay_buffer_steps=100,
+        policy_delay=2,
+        random_steps=1000,
+        replay_k=2,
+        demo_batch_size=128,
+        q_filter=True,
+        action_penalty=1.0,
+        prm_loss_weight=0.001,
+        aux_loss_weight=None,
+        actor_cls=None,
+        actor_kwargs=None,
+        actor_lr=0.001,
+        critic_cls=None,
+        critic_kwargs=None,
+        critic_lr=0.001,
+        observation_normalizer="none",
+        observation_clip=float("inf"),
+        action_noise="normal_0.2",
+    ):
         """
         :param env: OpenAI's GoalEnv instance.
         :param float eps_greedy: Probability of picking a random action
@@ -152,7 +160,8 @@ class HerTD3(HerAgent):
             goal_shape=self.env.observation_space["desired_goal"].shape,
             action_shape=self.env.action_space.shape,
             max_episodes=replay_buffer_episodes,
-            max_steps=replay_buffer_steps)
+            max_steps=replay_buffer_steps,
+        )
 
         self.policy_delay = policy_delay
         self.random_steps = random_steps
@@ -168,10 +177,14 @@ class HerTD3(HerAgent):
             self._aux_loss_weight = aux_loss_weight
 
         # Build model (AC architecture)
-        actors, critics_1, critics_2 = build_td3_ac(self.env.observation_space,
-                                                    self.env.action_space,
-                                                    actor_cls, actor_kwargs,
-                                                    critic_cls, critic_kwargs)
+        actors, critics_1, critics_2 = build_td3_ac(
+            self.env.observation_space,
+            self.env.action_space,
+            actor_cls,
+            actor_kwargs,
+            critic_cls,
+            critic_kwargs,
+        )
         self.actor, self.target_actor = actors
         self.critic_1, self.target_critic_1 = critics_1
         self.critic_2, self.target_critic_2 = critics_2
@@ -181,36 +194,34 @@ class HerTD3(HerAgent):
         self._critic_kwargs = critic_kwargs
         self._critic_lr = critic_lr
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(),
-                                          lr=actor_lr)
-        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(),
-                                             lr=critic_lr)
-        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(),
-                                             lr=critic_lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_1_optimizer = optim.Adam(self.critic_1.parameters(), lr=critic_lr)
+        self.critic_2_optimizer = optim.Adam(self.critic_2.parameters(), lr=critic_lr)
 
         # Normalizer
         self._obs_normalizer_arg = observation_normalizer
         self.obs_normalizer = create_normalizer(
             observation_normalizer,
             self.env.observation_space["observation"].shape,
-            clip_range=observation_clip)
+            clip_range=observation_clip,
+        )
         self.goal_normalizer = create_normalizer(
             observation_normalizer,
             self.env.observation_space["desired_goal"].shape,
-            clip_range=observation_clip)
+            clip_range=observation_clip,
+        )
 
         # Noise
         self._action_noise_arg = action_noise
-        self.action_noise = create_action_noise(action_noise,
-                                                self.env.action_space)
+        self.action_noise = create_action_noise(action_noise, self.env.action_space)
 
-        actor_space_range = (self.actor.action_space.high -
-                             self.actor.action_space.low)
+        actor_space_range = self.actor.action_space.high - self.actor.action_space.low
         self.smoothing_noise = NormalActionNoise(
             mu=np.zeros(actor_space_range.shape),
             sigma=0.1 * actor_space_range,
             clip_min=0.15 * actor_space_range,
-            clip_max=-0.15 * actor_space_range)
+            clip_max=-0.15 * actor_space_range,
+        )
 
         # Demonstration replay buffer
         self._demo_replay_buffer = None
@@ -223,16 +234,20 @@ class HerTD3(HerAgent):
 
     def load_demonstrations(self, demo_path):
         buffer = load_her_demonstrations(
-            demo_path, env=self.env, action_fn=self._to_actor_space,
-            max_steps=self.replay_buffer.max_steps)
+            demo_path,
+            env=self.env,
+            action_fn=self._to_actor_space,
+            max_steps=self.replay_buffer.max_steps,
+        )
 
         _LOG.debug("(HER-TD3) Loaded Demonstrations")
         _LOG.debug("(HER-TD3)     = Num. Episodes: %d", buffer.num_episodes)
         _LOG.debug("(HER-TD3)     = Num. Steps: %d", buffer.count_steps())
 
         if buffer.count_steps() < self._demo_batch_size:
-            raise ValueError("demonstrations replay buffer has less than"
-                             " `demo_batch_size` steps")
+            raise ValueError(
+                "demonstrations replay buffer has less than" " `demo_batch_size` steps"
+            )
 
         self._demo_replay_buffer = buffer
 
@@ -258,19 +273,23 @@ class HerTD3(HerAgent):
         self.obs_normalizer.update(state["observation"])
         self.goal_normalizer.update(state["desired_goal"])
 
-        self.replay_buffer.add(obs=state["observation"],
-                               action=self._to_actor_space(action),
-                               next_obs=next_state["observation"],
-                               reward=reward,
-                               terminal=terminal,
-                               goal=next_state["desired_goal"],
-                               achieved_goal=next_state["achieved_goal"])
+        self.replay_buffer.add(
+            obs=state["observation"],
+            action=self._to_actor_space(action),
+            next_obs=next_state["observation"],
+            reward=reward,
+            terminal=terminal,
+            goal=next_state["desired_goal"],
+            achieved_goal=next_state["achieved_goal"],
+        )
 
     @torch.no_grad()
     def compute_action(self, state):
         # Random exploration
-        if self._train_mode and (self._total_steps < self.random_steps or
-                                 np.random.random_sample() < self.eps_greedy):
+        if self._train_mode and (
+            self._total_steps < self.random_steps
+            or np.random.random_sample() < self.eps_greedy
+        ):
             return self.env.action_space.sample()
 
         # Pre-process
@@ -282,9 +301,11 @@ class HerTD3(HerAgent):
         # Compute action
         if self._train_mode:
             action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
-            action = np.clip(action + self.action_noise(),
-                             self.actor.action_space.low,
-                             self.actor.action_space.high)
+            action = np.clip(
+                action + self.action_noise(),
+                self.actor.action_space.low,
+                self.actor.action_space.high,
+            )
         else:
             action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
 
@@ -304,10 +325,12 @@ class HerTD3(HerAgent):
 
         with torch.no_grad():
             next_action = self.target_actor(next_obs, goal).cpu().numpy()
-            np.clip(next_action + self.smoothing_noise(),
-                    self.actor.action_space.low,
-                    self.actor.action_space.high,
-                    out=next_action)
+            np.clip(
+                next_action + self.smoothing_noise(),
+                self.actor.action_space.low,
+                self.actor.action_space.high,
+                out=next_action,
+            )
             next_action = torch.from_numpy(next_action).to(_DEVICE)
 
             next_q1 = self.target_critic_1(next_obs, goal, next_action)
@@ -330,10 +353,15 @@ class HerTD3(HerAgent):
         loss_q2.backward()
         self.critic_2_optimizer.step()
 
-        self._summary.add_scalars("Q", {"Mean_Q1": current_q1.mean(),
-                                        "Mean_Q2": current_q2.mean(),
-                                        "Mean_Target": next_q.mean()},
-                                  self._train_steps)
+        self._summary.add_scalars(
+            "Q",
+            {
+                "Mean_Q1": current_q1.mean(),
+                "Mean_Q2": current_q2.mean(),
+                "Mean_Target": next_q.mean(),
+            },
+            self._train_steps,
+        )
         self._summary.add_scalar("Loss/Critic1", loss_q1, self._train_steps)
         self._summary.add_scalar("Loss/Critic2", loss_q2, self._train_steps)
 
@@ -347,7 +375,7 @@ class HerTD3(HerAgent):
             pi_loss = -actor_q_min.mean()
             pi_loss += self._action_penalty * actor_out.pow(2).mean()
             if demo_mask.any():
-                cloning_loss = (actor_out[demo_mask] - action[demo_mask])
+                cloning_loss = actor_out[demo_mask] - action[demo_mask]
                 if self._q_filter:  # where is the demonstation action better?
                     current_q1 = self.critic_1(obs, goal, action)
                     current_q2 = self.critic_2(obs, goal, action)
@@ -361,9 +389,11 @@ class HerTD3(HerAgent):
                 aux_loss = self._aux_loss_weight * cloning_loss.pow(2).sum()
                 pi_loss = prm_loss + aux_loss
 
-                self._summary.add_scalars("Loss", {"Actor_PRM": prm_loss,
-                                                   "Actor_AUX": aux_loss},
-                                          self._train_steps)
+                self._summary.add_scalars(
+                    "Loss",
+                    {"Actor_PRM": prm_loss, "Actor_AUX": aux_loss},
+                    self._train_steps,
+                )
 
             self.actor_optimizer.zero_grad()
             pi_loss.backward()
@@ -376,20 +406,24 @@ class HerTD3(HerAgent):
         def _sample_reward_fn(achieved_goals, goals):
             return self.env.compute_reward(achieved_goals, goals, None)
 
-        has_demo = (self._demo_replay_buffer is not None and
-                    self._demo_batch_size > 0)
+        has_demo = self._demo_replay_buffer is not None and self._demo_batch_size > 0
         demo_batch_size = has_demo * self._demo_batch_size
 
         batch = self.replay_buffer.sample_batch_torch(
-            sample_size=self.batch_size, replay_k=self._replay_k,
-            reward_fn=_sample_reward_fn, device=_DEVICE)
+            sample_size=self.batch_size,
+            replay_k=self._replay_k,
+            reward_fn=_sample_reward_fn,
+            device=_DEVICE,
+        )
 
         if has_demo:
             demo_batch = self._demo_replay_buffer.sample_batch_torch(
-                sample_size=demo_batch_size, replay_k=0,
-                reward_fn=_sample_reward_fn, device=_DEVICE)
-            batch = tuple(torch.cat((x, y), dim=0)
-                          for x, y in zip(batch, demo_batch))
+                sample_size=demo_batch_size,
+                replay_k=0,
+                reward_fn=_sample_reward_fn,
+                device=_DEVICE,
+            )
+            batch = tuple(torch.cat((x, y), dim=0) for x, y in zip(batch, demo_batch))
 
         exp_mask = torch.zeros(self.batch_size, dtype=torch.bool)
         demo_mask = torch.ones(demo_batch_size, dtype=torch.bool)
@@ -404,21 +438,23 @@ class HerTD3(HerAgent):
     ########################
 
     def state_dict(self):
-        state = {"critic1": self.critic_1.state_dict(),
-                 "critic2": self.critic_2.state_dict(),
-                 "actor": self.actor.state_dict(),
-                 "obs_normalizer": self.obs_normalizer.state_dict(),
-                 "goal_normalizer": self.goal_normalizer.state_dict(),
-                 "train_steps": self._train_steps,
-                 "total_steps": self._total_steps}
+        state = {
+            "critic1": self.critic_1.state_dict(),
+            "critic2": self.critic_2.state_dict(),
+            "actor": self.actor.state_dict(),
+            "obs_normalizer": self.obs_normalizer.state_dict(),
+            "goal_normalizer": self.goal_normalizer.state_dict(),
+            "train_steps": self._train_steps,
+            "total_steps": self._total_steps,
+        }
 
         return state
 
     def load_state_dict(self, state):
-        self.critic_1.load_state_dict(state['critic1'])
-        self.target_critic_1.load_state_dict(state['critic1'])
-        self.critic_2.load_state_dict(state['critic2'])
-        self.target_critic_2.load_state_dict(state['critic2'])
+        self.critic_1.load_state_dict(state["critic1"])
+        self.target_critic_1.load_state_dict(state["critic1"])
+        self.critic_2.load_state_dict(state["critic2"])
+        self.target_critic_2.load_state_dict(state["critic2"])
         self.actor.load_state_dict(state["actor"])
         self.target_actor.load_state_dict(state["actor"])
 
@@ -429,22 +465,20 @@ class HerTD3(HerAgent):
         self._total_steps = state["total_steps"]
 
     def aggregate_state_dicts(self, states):
-        critic_1_state = dicts_mean([x['critic1'] for x in states])
+        critic_1_state = dicts_mean([x["critic1"] for x in states])
         self.critic_1.load_state_dict(critic_1_state)
         self.target_critic_1.load_state_dict(critic_1_state)
 
-        critic_2_state = dicts_mean([x['critic2'] for x in states])
+        critic_2_state = dicts_mean([x["critic2"] for x in states])
         self.critic_2.load_state_dict(critic_2_state)
         self.target_critic_2.load_state_dict(critic_2_state)
 
-        actor_state = dicts_mean([x['actor'] for x in states])
+        actor_state = dicts_mean([x["actor"] for x in states])
         self.actor.load_state_dict(actor_state)
         self.target_actor.load_state_dict(actor_state)
 
-        self.obs_normalizer.load_state_dict([x['obs_normalizer']
-                                             for x in states])
-        self.goal_normalizer.load_state_dict([x['goal_normalizer']
-                                              for x in states])
+        self.obs_normalizer.load_state_dict([x["obs_normalizer"] for x in states])
+        self.goal_normalizer.load_state_dict([x["goal_normalizer"] for x in states])
 
         self._train_steps = max(x["train_steps"] for x in states)
         self._total_steps = max(x["total_steps"] for x in states)
@@ -453,18 +487,22 @@ class HerTD3(HerAgent):
     ########################
 
     def _to_actor_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.env.action_space.low,
-                           max_x=self.env.action_space.high,
-                           min_out=self.actor.action_space.low,
-                           max_out=self.actor.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.env.action_space.low,
+            max_x=self.env.action_space.high,
+            min_out=self.actor.action_space.low,
+            max_out=self.actor.action_space.high,
+        )
 
     def _to_action_space(self, action):
-        return umath.scale(x=action,
-                           min_x=self.actor.action_space.low,
-                           max_x=self.actor.action_space.high,
-                           min_out=self.env.action_space.low,
-                           max_out=self.env.action_space.high)
+        return umath.scale(
+            x=action,
+            min_x=self.actor.action_space.low,
+            max_x=self.actor.action_space.high,
+            min_out=self.env.action_space.low,
+            max_out=self.env.action_space.high,
+        )
 
     # Save/Load Agent
     ########################
@@ -480,45 +518,44 @@ class HerTD3(HerAgent):
             if err.errno != errno.EEXIST:
                 raise
 
-        args = collections.OrderedDict([
-            ('eps_greedy', self.eps_greedy),
-            ('gamma', self.gamma),
-            ('tau', self.tau),
-            ('batch_size', self.batch_size),
-            ('reward_scale', self.reward_scale),
-            ('replay_buffer_episodes', self.replay_buffer.max_episodes),
-            ('replay_buffer_steps', self.replay_buffer.max_steps),
-            ('policy_delay', self.policy_delay),
-            ('random_steps', self.random_steps),
-
-            # HER args
-            ('replay_k', self._replay_k),
-            ('demo_batch_size', self._demo_batch_size),
-            ('q_filter', self._q_filter),
-            ('action_penalty', self._action_penalty),
-            ('prm_loss_weight', self._prm_loss_weight),
-            ('aux_loss_weight', self._aux_loss_weight),
-
-            # Actor-Critic
-            ('actor_cls', type(self.actor)),
-            ('actor_kwargs', self._actor_kwargs),
-            ('actor_lr', self._actor_lr),
-            ('critic_cls', type(self.critic_1)),
-            ('critic_kwargs', self._critic_kwargs),
-            ('critic_lr', self._critic_lr),
-
-            # Normalize
-            ('observation_normalizer', self._obs_normalizer_arg),
-            ('observation_clip', self.obs_normalizer.clip_range),
-            ('action_noise', self._action_noise_arg)
-        ])
-        pickle.dump(args, open(os.path.join(path, "args.pkl"), 'wb'))
+        args = collections.OrderedDict(
+            [
+                ("eps_greedy", self.eps_greedy),
+                ("gamma", self.gamma),
+                ("tau", self.tau),
+                ("batch_size", self.batch_size),
+                ("reward_scale", self.reward_scale),
+                ("replay_buffer_episodes", self.replay_buffer.max_episodes),
+                ("replay_buffer_steps", self.replay_buffer.max_steps),
+                ("policy_delay", self.policy_delay),
+                ("random_steps", self.random_steps),
+                # HER args
+                ("replay_k", self._replay_k),
+                ("demo_batch_size", self._demo_batch_size),
+                ("q_filter", self._q_filter),
+                ("action_penalty", self._action_penalty),
+                ("prm_loss_weight", self._prm_loss_weight),
+                ("aux_loss_weight", self._aux_loss_weight),
+                # Actor-Critic
+                ("actor_cls", type(self.actor)),
+                ("actor_kwargs", self._actor_kwargs),
+                ("actor_lr", self._actor_lr),
+                ("critic_cls", type(self.critic_1)),
+                ("critic_kwargs", self._critic_kwargs),
+                ("critic_lr", self._critic_lr),
+                # Normalize
+                ("observation_normalizer", self._obs_normalizer_arg),
+                ("observation_clip", self.obs_normalizer.clip_range),
+                ("action_noise", self._action_noise_arg),
+            ]
+        )
+        pickle.dump(args, open(os.path.join(path, "args.pkl"), "wb"))
 
         state = self.state_dict()
         pickle.dump(state, open(os.path.join(path, "state.pkl"), "wb"))
 
         if replay_buffer:
-            self.replay_buffer.save(os.path.join(path, 'replay_buffer.h5'))
+            self.replay_buffer.save(os.path.join(path, "replay_buffer.h5"))
 
     @classmethod
     def load(cls, path, env, *args, replay_buffer=True, **kwargs):
@@ -532,7 +569,8 @@ class HerTD3(HerAgent):
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys()))
+                max(len(x) for x in args_values.keys())
+            )
             for key, value in args_values.items():
                 _LOG.debug(fmt_string.format(key, value))
 
