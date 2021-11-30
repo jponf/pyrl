@@ -119,6 +119,8 @@ class PolicyMLP(nn.Module):
 
 
 class GaussianPolicyMLP(nn.Module):
+    """Gaussian actor implemented as a Multi-layer Perceptron."""
+
     def __init__(
         self,
         observation_space,

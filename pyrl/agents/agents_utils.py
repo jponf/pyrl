@@ -10,7 +10,7 @@ import numpy as np
 
 # ...
 import pyrl.util.ugym
-from pyrl.models.models import (
+from pyrl.models.mlp import (
     PolicyMLP,
     GaussianPolicyMLP,
     CriticMLP,
