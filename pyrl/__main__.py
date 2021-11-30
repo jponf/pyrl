@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, print_function, division,
-                        unicode_literals)
+from __future__ import absolute_import, print_function, division, unicode_literals
+
 __version__ = "0.0.1"
 
 import importlib
+
 # import sys
 # import traceback
 # import warnings
@@ -23,9 +24,10 @@ import pyrl.cli.list_envs
 
 ###############################################################################
 
-click.disable_unicode_literals_warning = True
-
 _LOG = pyrl.util.logging.get_logger()
+
+if hasattr(click, "disable_unicode_literals_warning"):
+    setattr(click, "disable_unicode_literals_warning", True)
 
 
 ###############################################################################
@@ -45,11 +47,14 @@ _LOG = pyrl.util.logging.get_logger()
 
 ###############################################################################
 
+
 @click.group()
-@click.option("--verbose",
-              type=click.Choice(pyrl.util.logging.LEVELS.keys()),
-              help="Verbosity level",
-              default="INFO")
+@click.option(
+    "--verbose",
+    type=click.Choice(tuple(pyrl.util.logging.LEVELS.keys())),
+    help="Verbosity level",
+    default="INFO",
+)
 def main(verbose):
     pyrl.util.logging.set_up_logger(verbose)
 

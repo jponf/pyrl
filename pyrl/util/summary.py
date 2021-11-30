@@ -9,6 +9,7 @@ https://pytorch.org/docs/stable/tensorboard.html
 """
 
 import abc
+from typing import Mapping, Optional, Union
 import six
 
 import torch.utils.tensorboard
@@ -16,23 +17,35 @@ import torch.utils.tensorboard
 
 ###############################################################################
 
+
 @six.add_metaclass(abc.ABCMeta)
 class BaseSummary(object):
     """Interface that must be implemented by Summary objects."""
 
     @abc.abstractmethod
-    def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
+    def add_scalar(
+        self,
+        tag: str,
+        scalar_value: Union[int, float],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
         """Add scalar data to summary.
 
         :param str tag: Data identifier.
-        :param (float or str) scalar_value: Value to save.
+        :param (int or float) scalar_value: Value to save.
         :param int global_step: Global step value to record.
         :param float walltime: Overrides default walltime (time.time()).
         """
 
     @abc.abstractmethod
-    def add_scalars(self, main_tag, tag_scalar_dict,
-                    global_step=None, walltime=None):
+    def add_scalars(
+        self,
+        main_tag: str,
+        tag_scalar_dict: Mapping[str, Union[int, float]],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
         """Adds many scalar data to summary.
 
         :param str main_tag: The parent name for the tags.
@@ -46,11 +59,22 @@ class BaseSummary(object):
 class DummySummary(BaseSummary):
     """Dummy summary that transforms all operations into no-ops."""
 
-    def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
+    def add_scalar(
+        self,
+        tag: str,
+        scalar_value: Union[int, float],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
         pass
 
-    def add_scalars(self, main_tag, tag_scalar_dict,
-                    global_step=None, walltime=None):
+    def add_scalars(
+        self,
+        main_tag: str,
+        tag_scalar_dict: Mapping[str, Union[int, float]],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
         pass
 
 
@@ -59,22 +83,49 @@ class Summary(BaseSummary):
     `torch.util.tensorboard.SummaryWritter`
     """
 
-    def __init__(self, log_dir, purge_step=None, max_queue=10,
-                 flush_secs=120, filename_suffix=''):
+    def __init__(
+        self,
+        log_dir: str,
+        purge_step: Optional[int] = None,
+        max_queue: int = 10,
+        flush_secs: int = 120,
+        filename_suffix: str = "",
+    ):
         """Creates a `Summary` that will write out events and summaries
         to the event file.
         """
         self._writter = torch.utils.tensorboard.SummaryWriter(
-            log_dir=log_dir, purge_step=purge_step, max_queue=max_queue,
-            flush_secs=flush_secs, filename_suffix=filename_suffix)
+            log_dir=log_dir,
+            purge_step=purge_step,
+            max_queue=max_queue,
+            flush_secs=flush_secs,
+            filename_suffix=filename_suffix,
+        )
 
-    def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
-        self._writter.add_scalar(tag=tag, scalar_value=scalar_value,
-                                 global_step=global_step, walltime=walltime)
+    def add_scalar(
+        self,
+        tag: str,
+        scalar_value: Union[int, float],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
+        self._writter.add_scalar(
+            tag=tag,
+            scalar_value=scalar_value,
+            global_step=global_step,
+            walltime=walltime,
+        )
 
-    def add_scalars(self, main_tag, tag_scalar_dict,
-                    global_step=None, walltime=None):
-        self._writter.add_scalars(main_tag=main_tag,
-                                  tag_scalar_dict=tag_scalar_dict,
-                                  global_step=global_step,
-                                  walltime=walltime)
+    def add_scalars(
+        self,
+        main_tag: str,
+        tag_scalar_dict: Mapping[str, Union[int, float]],
+        global_step: Optional[int] = None,
+        walltime: Optional[float] = None,
+    ):
+        self._writter.add_scalars(
+            main_tag=main_tag,
+            tag_scalar_dict=tag_scalar_dict,
+            global_step=global_step,
+            walltime=walltime,
+        )

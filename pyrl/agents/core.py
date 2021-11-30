@@ -8,10 +8,11 @@ import tqdm.auto as tqdm
 
 # ...
 import pyrl.util.ugym
-import pyrl.util.summary
+from pyrl.util.summary import BaseSummary, DummySummary
 
 
 ###############################################################################
+
 
 @six.add_metaclass(abc.ABCMeta)
 class BaseAgent:
@@ -19,14 +20,14 @@ class BaseAgent:
 
     def __init__(self, *args, **kwargs):
         super(BaseAgent, self).__init__(*args, **kwargs)
-        self._summary = pyrl.util.summary.DummySummary()
+        self._summary: BaseSummary = DummySummary()
 
-        self._num_episodes = 0
-        self._train_steps = 0
-        self._train_mode = True
+        self._num_episodes: int = 0
+        self._train_steps: int = 0
+        self._train_mode: bool = True
 
     @property
-    def num_train_steps(self):
+    def num_train_steps(self) -> int:
         """Number of times the agent has been trained."""
         return self._train_steps
 
@@ -42,7 +43,7 @@ class BaseAgent:
         self.set_train_mode(mode=False)
 
     @abc.abstractmethod
-    def set_train_mode(self, mode=True):
+    def set_train_mode(self, mode: bool = True):
         """Sets the agent training mode."""
         self._train_mode = mode
 
@@ -86,7 +87,7 @@ class BaseAgent:
         """
         raise NotImplementedError
 
-    def train(self, steps, progress=False):
+    def train(self, steps, progress: bool = False):
         """Trains an agent for the specified number of `steps`.
 
         :param steps: The number of steps to train the agent for.
@@ -99,8 +100,7 @@ class BaseAgent:
             raise ValueError("steps must be > 0")
 
         if progress:
-            t_steps = tqdm.trange(steps, desc="Train step",
-                                  dynamic_ncols=True)
+            t_steps = tqdm.trange(steps, desc="Train step", dynamic_ncols=True)
         else:
             t_steps = six.moves.range(steps)
 

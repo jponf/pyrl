@@ -646,6 +646,14 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "types-six"
+version = "1.16.3"
+description = "Typing stubs for six"
+category = "dev"
+optional = false
+python-versions = "*"
+
+[[package]]
 name = "typing-extensions"
 version = "4.0.0"
 description = "Backported and Experimental Type Hints for Python 3.6+"
@@ -703,7 +711,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytes
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.6.2,<3.10"
-content-hash = "f9ab3666fa3babcd5b757ebd210f35d48fb83ee17dc24ea61d899ff38be3fe84"
+content-hash = "034b9332c493c4405be2a4f4a64e4467cd7840903dd54620b182db63ff82b554"
 
 [metadata.files]
 absl-py = [
@@ -1202,6 +1210,10 @@ typed-ast = [
     {file = "typed_ast-1.4.3-cp39-cp39-win32.whl", hash = "sha256:209596a4ec71d990d71d5e0d312ac935d86930e6eecff6ccc7007fe54d703808"},
     {file = "typed_ast-1.4.3-cp39-cp39-win_amd64.whl", hash = "sha256:9c6d1a54552b5330bc657b7ef0eae25d00ba7ffe85d9ea8ae6540d2197a3788c"},
     {file = "typed_ast-1.4.3.tar.gz", hash = "sha256:fb1bbeac803adea29cedd70781399c99138358c26d05fcbd23c13016b7f5ec65"},
+]
+types-six = [
+    {file = "types-six-1.16.3.tar.gz", hash = "sha256:b1e21becdaee01e11cdb788f820ac030b9f22d14b91f88184a31cc2424064163"},
+    {file = "types_six-1.16.3-py2.py3-none-any.whl", hash = "sha256:8dda49da00f9610f2442b6bd0566088a83127f8fc8093c52e1d175eb2111fec4"},
 ]
 typing-extensions = [
     {file = "typing_extensions-4.0.0-py3-none-any.whl", hash = "sha256:829704698b22e13ec9eaf959122315eabb370b0884400e9818334d8b677023d9"},
