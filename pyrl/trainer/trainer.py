@@ -341,7 +341,7 @@ def _initialize_env(env_or_name: Union[gym.Env, str], agent_cls: Type[Agent]):
     else:
         env = gym.make(env_or_name)
 
-    is_her_agent = issubclass(agent_cls, pyrl.agents.core.HerAgent)
+    is_her_agent = issubclass(agent_cls, HerAgent)
     is_her_env = pyrl.util.ugym.is_her_env(env)
 
     if is_her_env and not is_her_agent:
