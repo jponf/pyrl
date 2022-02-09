@@ -27,7 +27,7 @@ click = ">=6.0"
 gym = "^0.15.4"
 h5py = "^3.0.0"
 six = "^1.0.0"
-tensorflow = "^2.4"
+tensorflow = "^2.7"
 torch = "^1.8.2"
 tqdm = "^4.46.0"
 
