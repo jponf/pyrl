@@ -11,17 +11,18 @@ import numpy as np
 # ...
 import pyrl.util.ugym
 from pyrl.models.mlp import (
-    PolicyMLP,
-    GaussianPolicyMLP,
     CriticMLP,
-    HerPolicyMLP,
-    HerGaussianPolicyMLP,
+    GaussianPolicyMLP,
     HerCriticMLP,
+    HerGaussianPolicyMLP,
+    HerPolicyMLP,
+    PolicyMLP,
 )
-from .noise import NullActionNoise, NormalActionNoise, OUActionNoise
+from pyrl.util.type_utils import StrEnum
+
+from .noise import NormalActionNoise, NullActionNoise, OUActionNoise
 from .preprocessing import IdentityNormalizer, StandardNormalizer
 from .replay_buffer import HerReplayBuffer
-
 
 ###############################################################################
 
@@ -44,20 +45,27 @@ def create_action_noise(name, action_space):
         stddev = float(stddev)
     except ValueError:
         raise ValueError(
-            "unable to parse standard deviation value," " expected <noise>_<stddev>"
+            "unable to parse standard deviation value," " expected <noise>_<stddev>",
         )
 
     try:
         action_range = action_space.high - action_space.low
         return _ACTION_NOISES[noise](
-            mu=np.zeros(action_space.shape), sigma=action_range * stddev
+            mu=np.zeros(action_space.shape),
+            sigma=action_range * stddev,
         )
     except KeyError:
         raise ValueError("unknown noise type '{}'".format(name))
 
 
+class ObservationNormalizer(StrEnum):
+    NONE = "none"
+    STANDARD = "standard"
+
+
 _NORAMLIZERS = {
-    "standard": StandardNormalizer,
+    ObservationNormalizer.NONE: IdentityNormalizer,
+    ObservationNormalizer.STANDARD: StandardNormalizer,
 }
 
 
@@ -132,8 +140,10 @@ def create_actor(
         raise ValueError(
             "Unknown actor type for observation space"
             " {}, action space {} and policy {}".format(
-                observation_space, action_space, policy
-            )
+                observation_space,
+                action_space,
+                policy,
+            ),
         )
 
     return actor
@@ -170,7 +180,7 @@ def create_critic(observation_space, action_space, critic_cls=None, critic_kwarg
     if critic is None:
         raise ValueError(
             "Unknown critic type for observation space"
-            " {} and action space {}".format(observation_space, action_space)
+            " {} and action space {}".format(observation_space, action_space),
         )
 
     return critic
@@ -202,7 +212,9 @@ def load_her_demonstrations(demo_path, env, max_steps, action_fn):
         transitions = zip(states, acs, next_states, infos)
         for state, action, next_state, info in transitions:
             reward = env.compute_reward(
-                next_state["achieved_goal"], next_state["desired_goal"], info
+                next_state["achieved_goal"],
+                next_state["desired_goal"],
+                info,
             )
 
             if action_fn is not None:

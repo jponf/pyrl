@@ -73,15 +73,15 @@ repos:
             scripts/|
             notebooks/
           )
-      - id: mypy
-        name: Running mypy
-        stages: [commit]
-        language: system
-        entry: poetry run mypy
-        args: [--install-types, --non-interactive]
-        types: [python]
-        exclude: |
-          (?x)^(
-            scripts/|
-            notebooks/
-          )
+      # - id: mypy
+      #   name: Running mypy
+      #   stages: [commit]
+      #   language: system
+      #   entry: poetry run mypy
+      #   args: [--install-types, --non-interactive]
+      #   types: [python]
+      #   exclude: |
+      #     (?x)^(
+      #       scripts/|
+      #       notebooks/
+      #     )
