@@ -1,3 +1,46 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "pyrl"
+version = "0.1.0"
+authors = [
+  "Josep Pon Farreny <jponfarreny@gmail.com>",
+  "Guillem Orellana Trullols <guillem.orellana@gmail.com>"
+]
+maintainers = [
+  "Josep Pon Farreny <jponfarreny@gmail.com>",
+]
+
+description = "Python Reinforcement Learning Agents"
+readme = "README.md"
+homepage = "https://github.com/jponf/pyrl"
+license = "Apache Version 2.0"
+
+keywords = ["Reinforcement Learning", "DDPG", "TD3", "SAC",
+            "Hindsight Experience Replay", "HER"]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.10"
+click = ">=6.0"
+gym = "^0.15.4"
+h5py = "^3.0.0"
+six = "^1.0.0"
+tensorflow = "^2.7"
+torch = "^1.8.2"
+tqdm = "^4.46.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^21.11b1"
+mypy = "^0.910"
+types-six = "^1.16.3"
+pre-commit = "^2.20.0"
+safety = "^2.3.1"
+
+[tool.poetry.group.test.dependencies]
+
+
 [tool.black]
 line-length = 88
 include = '\.pyi?$'
@@ -11,31 +54,17 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
+cache_dir = ".cache/mypy/"
 ignore_missing_imports = true
-disallow_untyped_signatures = true
-
-[tool.poetry]
-name = "pyrl"
-version = "0.0.1"
-description = "Python Reinforcement Learning Agents"
-authors = ["Josep Pon Farreny <jponfarreny@gmail.com>, Guillem Orellana Trullols <guillem.orellana@gmail.com>"]
-license = "Apache Version 2.0"
-
-[tool.poetry.dependencies]
-python = "^3.6.2,<3.10"
-click = ">=6.0"
-gym = "^0.15.4"
-h5py = "^3.0.0"
-six = "^1.0.0"
-tensorflow = "^2.7"
-torch = "^1.8.2"
-tqdm = "^4.46.0"
-
-[tool.poetry.dev-dependencies]
-black = "^21.11b1"
-mypy = "^0.910"
-types-six = "^1.16.3"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+no_implicit_optional = true
+check_untyped_defs = true
+strict_equality = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+# plugins =

@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import argparse
+import re
+from typing import IO, List, Optional, Sequence
+
+
+class Requirement:
+    UNTIL_COMPARISON = re.compile("={2,3}|!=|~=|>=?|<=?")
+    UNTIL_SEP = re.compile(r"[^;\s]+")
+
+    def __init__(self) -> None:
+        self.value: Optional[bytes] = None
+        self.comments: List[bytes] = []
+
+    @property
+    def name(self) -> bytes:
+        assert self.value is not None, self.value
+        name = self.value.lower()
+        for egg in ("#egg=", "&egg="):
+            if egg in self.value:
+                return name.partition(egg)[-1]
+
+        m = self.UNTIL_SEP.match(name)
+        assert m is not None
+
+        name = m.group()
+        m = self.UNTIL_COMPARISON.search(name)
+        if not m:
+            return name
+
+        return name[: m.start()]
+
+    def __lt__(self, requirement: "Requirement") -> int:
+        # \n means top of file comment, so always return True,
+        # otherwise just do a string comparison with value.
+        assert self.value is not None, self.value
+        if self.value == "\n":
+            return True
+        elif requirement.value == "\n":
+            return False
+
+        return self.name < requirement.name
+
+    def is_complete(self) -> bool:
+        return self.value is not None and not self.value.rstrip("\r\n").endswith("\\")
+
+    def append_value(self, value: bytes) -> None:
+        if self.value is not None:
+            self.value += value
+        else:
+            self.value = value
+
+
+def fix_requirements(f: IO[str]) -> bool:
+    requirements: List[Requirement] = []
+    before = list(f)
+    after: List[str] = []
+
+    before_string = "".join(before)
+
+    # adds new line in case one is missing
+    # AND a change to the requirements file is needed regardless:
+    if before and not before[-1].endswith("\n"):
+        before[-1] += "\n"
+
+    # If the file is empty (i.e. only whitespace/newlines) exit early
+    if before_string.strip() == "":
+        return True
+
+    for line in before:
+        # If the most recent requirement object has a value, then it's
+        # time to start building the next requirement object.
+
+        if not len(requirements) or requirements[-1].is_complete():
+            requirements.append(Requirement())
+
+        requirement = requirements[-1]
+
+        # If we see a newline before any requirements, then this is a
+        # top of file comment.
+        if len(requirements) == 1 and line.strip() == "":
+            if len(requirement.comments) and requirement.comments[0].startswith("#"):
+                requirement.value = "\n"
+            else:
+                requirement.comments.append(line)
+        elif line.startswith("#") or line.strip() == "":
+            requirement.comments.append(line)
+        else:
+            requirement.append_value(line)
+
+    # if a file ends in a comment, preserve it at the end
+    if requirements[-1].value is None:
+        rest = requirements.pop().comments
+    else:
+        rest = []
+
+    # find and remove pkg-resources==0.0.0
+    # which is automatically added by broken pip package under Debian
+    requirements = [req for req in requirements if req.value != "pkg-resources==0.0.0\n"]
+
+    for requirement in sorted(requirements):
+        after.extend(requirement.comments)
+        assert requirement.value, requirement.value
+        after.append(requirement.value)
+    after.extend(rest)
+
+    after_string = "".join(after)
+
+    if before_string == after_string:
+        return True
+    else:
+        f.seek(0)
+        f.write(after_string)
+        f.truncate()
+        return False
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filenames", nargs="*", help="Filenames to fix")
+    args = parser.parse_args(argv)
+
+    for arg in args.filenames:
+        with open(arg, "r+") as file_obj:
+            was_ok = fix_requirements(file_obj)
+
+            if not was_ok:
+                print(f"Fixing/Sorting {arg}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
