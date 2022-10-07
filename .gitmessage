@@ -1,0 +1,46 @@
+# |<----     Subject line up to 50 chars     --->|<-- body 72 chars -->|
+#
+# run `git config commit.template .gitmessage` to set this template as
+# default
+#
+# We recommend using the conventional changelog format:
+#
+# <type>(<scope>): <subject>
+# <BLANK LINE>
+# <body>
+# <BLANK LINE>
+# <footer>
+#
+# === Subject (mandatory) ===
+# Succinct, description of the change
+#  * Don't capitalize and no dot (.) at the end
+#
+# === Type (mandatory) ===
+# Unless strictly necessary use one of:
+#   * feat: A new feature, relevant to an end user
+#   * fix: A bug fix, relevant or reported by an end user
+#   * docs: Documentation only changes, independent of end user
+#           relevance
+#   * style: Change that do not affect the meaning of the code
+#            (formatting)
+#   * refactor: A code change that neither fixes a bug nor adds a
+#               new feature (not directly noticeable by an end user)
+#   * perf: A code change that improves performance
+#   * test: A code change that handles testing code and tools
+#   * chore: Changes to the build process or auxiliary tools and
+#            libraries (not relevant to the end user)
+#
+# === Scope (recommended) ===
+# Could be anything specifying the place of the commit change.
+# For example a new CLI feature could look like:
+#
+#   feat(cli): New entry point to run feature X.
+#
+# === Body (recommended) ===
+# Should include the motivation for the change and contrast with
+# the previous behavior.
+#
+# === Footer (optional) ===
+# Should contain any information about breaking changes and is also
+# the place to reference GitHub/Gitlab/Jira issues that this commit
+# closes.
