@@ -1,0 +1,87 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.4.0
+    hooks:
+      - id: requirements-txt-fixer
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            notebooks/
+          )
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            notebooks/
+          )
+      - id: check-yaml
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v2.1.0
+    hooks:
+      - id: add-trailing-comma
+  - repo: local
+    hooks:
+      - id: update-req
+        name: Update requirements.txt and requirements-dev.txt
+        stages: [commit]
+        language: system
+        entry: make
+        files: poetry.lock|requirements.txt|requirements-dev.txt
+        pass_filenames: false
+        args: [gen-req]
+      - id: isort
+        name: Running isort
+        stages: [commit]
+        language: system
+        entry: poetry run isort
+        types: [python]
+        exclude: |
+          (?x)^(
+            scripts/|
+            notebooks/
+          )
+      - id: black
+        name: Running black
+        stages: [commit]
+        language: system
+        entry: poetry run black
+        types: [python]
+        exclude: |
+          (?x)^(
+            scripts/|
+            notebooks/
+          )
+      - id: safety
+        name: Running safety check on requirements.txt
+        stages: [commit]
+        language: system
+        entry: poetry run safety
+        pass_filenames: false
+        args: [check, --full-report, -r, requirements.txt]
+      - id: flake8
+        name: Running flake8
+        stages: [commit]
+        language: system
+        entry: poetry run flake8
+        types: [python]
+        exclude: |
+          (?x)^(
+            scripts/|
+            notebooks/
+          )
+      - id: mypy
+        name: Running mypy
+        stages: [commit]
+        language: system
+        entry: poetry run mypy
+        args: [--install-types, --non-interactive]
+        types: [python]
+        exclude: |
+          (?x)^(
+            scripts/|
+            notebooks/
+          )
