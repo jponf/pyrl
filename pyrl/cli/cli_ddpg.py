@@ -1,24 +1,22 @@
 # -*- coding: utf-8 -*-
 
-# Standard library
-# SciPy stack
+import gym
 import numpy as np
 import os
 import six
 import sys
 import time
-
-# Click (command line options)
 import typer
 from pathlib import Path
 
-# ...
 import pyrl.agents
 import pyrl.cli.util
 import pyrl.trainer
 import pyrl.util.logging
 import pyrl.util.ugym
 from pyrl.agents.agents_utils import ObservationNormalizer
+from pyrl.agents.ddpg import DDPG
+from pyrl.trainer.trainer import AgentTrainer
 
 ###############################################################################
 
@@ -33,7 +31,7 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 
-@app.command(name="train", no_args_is_help=True, help="Trains a ddpg agent.")
+@app.command(name="train", no_args_is_help=True, help="Train a ddpg agent.")
 def cli_ddpg_train(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     num_epochs: int = typer.Option(
@@ -163,12 +161,18 @@ def cli_ddpg_train(
     sys.exit(0)
 
 
-def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
+def _run_train(
+    trainer: AgentTrainer,
+    num_epochs: int,
+    num_episodes: int,
+    num_evals: int,
+    save_path: Path,
+):
     try:
         for epoch in six.moves.range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
             trainer.agent.set_train_mode()
-            _run_train_epoch(trainer, epoch, num_episodes, save_path)
+            _run_train_epoch(trainer, epoch, num_episodes)
 
             save_start_time = time.time()
             trainer.agent.save(save_path, replay_buffer=True)
@@ -187,7 +191,7 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
         trainer.env.close()
 
 
-def _run_train_epoch(trainer, epoch, num_episodes, save_path):
+def _run_train_epoch(trainer: AgentTrainer, epoch: int, num_episodes: int):
     for episode in six.moves.range(1, num_episodes + 1):
         episode_start_time = time.time()
         _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]", episode, num_episodes, epoch)
@@ -198,48 +202,54 @@ def _run_train_epoch(trainer, epoch, num_episodes, save_path):
 ###############################################################################
 
 
-# @click.command("ddpg-test")
-# @click.argument("environment", type=str)
-# @click.argument("agent-path", type=click.Path(exists=True, dir_okay=True))
-# @click.option("--num-episodes", type=int, show_default=True, default=5)
-# @click.option("--seed", type=int, default=int(time.time()))
-# def cli_ddpg_test(environment, agent_path, num_episodes, seed):
-#     """Runs a previously trained DDPG agent on an OpenAI's gym environment."""
-#     _LOG.info("Loading '%s'", environment)
-#     env = pyrl.util.ugym.make_flat(environment)
-#     pyrl.cli.util.initialize_seed(seed)
-#     env.seed(seed)
+@app.command("test", no_args_is_help=True, help="Test a ddpg agent.")
+def cli_ddpg_test(
+    environment: str = typer.Argument(None, help="Gym's environment name"),
+    agent_path: Path = typer.Argument(
+        default=None,
+        exists=True,
+        file_okay=False,
+        help="Path to a previously saved DDPG agent checkpoint.",
+    ),
+    num_episodes: int = typer.Option(5, help="Number of episodes to run"),
+    seed: int = typer.Option(0),
+):
+    """Runs a previously trained DDPG agent on an OpenAI's gym environment."""
+    _LOG.info("Loading '%s'", environment)
+    env = pyrl.util.ugym.make_flat(environment)
+    pyrl.cli.util.initialize_seed(seed)
+    env.seed(seed)
 
-#     _LOG.info("Loading agent from %s", agent_path)
-#     agent = pyrl.agents.DDPG.load(agent_path, replay_buffer=False)
-#     agent.set_eval_mode()
+    _LOG.info("Loading agent from %s", agent_path)
+    agent = pyrl.agents.DDPG.load(agent_path, replay_buffer=False)
+    agent.set_eval_mode()
 
-#     _LOG.info("Agent trained for %d stes", agent.num_train_steps)
-#     _LOG.info("Action space size: %s", str(agent.action_space))
-#     _LOG.info("Observation space size: %s", str(agent.observation_space))
+    _LOG.info("Agent trained for %d stes", agent.num_train_steps)
+    _LOG.info("Action space size: %s", str(agent.action_space))
+    _LOG.info("Observation space size: %s", str(agent.observation_space))
 
-#     env.render()  # Some environments must be rendered before running
-#     all_rewards = []
-#     for episode in six.moves.range(num_episodes):
-#         _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
-#         rewards = _evaluate(agent, env, num_evals=1, render=True)
-#         all_rewards.extend(rewards)
+    env.render()  # Some environments must be rendered before running
+    all_rewards = []
+    for episode in six.moves.range(num_episodes):
+        _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
+        rewards = _evaluate(agent, env, num_evals=1, render=True)
+        all_rewards.extend(rewards)
 
-#     env.close()
-#     sum_score = sum(x.sum() for x in all_rewards)
-#     _LOG.info(
-#         "Average sum score over %d runs: %d",
-#         len(all_rewards),
-#         sum_score / len(all_rewards),
-#     )
+    env.close()
+    sum_score = sum(x.sum() for x in all_rewards)
+    _LOG.info(
+        "Average sum score over %d runs: %d",
+        len(all_rewards),
+        sum_score / len(all_rewards),
+    )
 
-#     sys.exit(0)
+    sys.exit(0)
 
 
 ###############################################################################
 
 
-def _evaluate(agent, env, num_evals, render):
+def _evaluate(agent: DDPG, env: gym.Env, num_evals: int, render: bool):
     all_rewards = []
 
     for _ in six.moves.range(num_evals):

@@ -40,6 +40,9 @@ safety = "^2.3.1"
 isort = "^5.10.1"
 flake8 = "^5.0.4"
 
+[tool.poetry.group.gym-extras.dependencies]
+box2d-py = "^2.3.8"
+
 [tool.black]
 line-length = 88
 include = '\.pyi?$'
