@@ -11,22 +11,22 @@ the Deep Deterministic Policy Gradient algorithm.
 
 import collections
 import errno
-import os
-import pickle
 
 # Scipy
 import numpy as np
+import os
+import pickle
 
 # Torch
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 
 # ...
 import pyrl.util.logging
 import pyrl.util.umath as umath
-
 from pyrl.models.models_utils import soft_update
+
 from .agents_utils import (
     create_action_noise,
     create_normalizer,
@@ -36,7 +36,6 @@ from .agents_utils import (
 from .core import HerAgent
 from .ddpg import build_ddpg_ac
 from .replay_buffer import HerReplayBuffer
-
 
 ###############################################################################
 
@@ -107,6 +106,10 @@ class HerDDPG(HerAgent):
         :param demo_batch_size: Additional elements sampled from the demo
             replay buffer to train the actor and critic.
         type demo_batch_size: int
+        :param q_filter: If true, we account for the possibility that
+            demonstrations can be suboptimal by applying the behavior cloning
+            loss only to states where the critic Q(s,a) determines that the
+            demonstrator action is better than the actor action.
         :param action_penalty: Quadratic penalty on actions to avoid
             tanh saturation and vanishing gradients (0 disables the penalty).
         :type action_penalty: float
@@ -221,7 +224,7 @@ class HerDDPG(HerAgent):
 
         if buffer.count_steps() < self._demo_batch_size:
             raise ValueError(
-                "demonstrations replay buffer has less than" " `demo_batch_size` steps"
+                "demonstrations replay buffer has less than" " `demo_batch_size` steps",
             )
 
         self._demo_replay_buffer = buffer
@@ -268,7 +271,8 @@ class HerDDPG(HerAgent):
         if self._train_mode:
             if np.random.random_sample() < self.eps_greedy:
                 action = np.random.uniform(
-                    low=self.actor.action_space.low, high=self.actor.action_space.high
+                    low=self.actor.action_space.low,
+                    high=self.actor.action_space.high,
                 )
             else:
                 action = self.actor(obs, goal).cpu().squeeze_(0).numpy()
@@ -308,7 +312,9 @@ class HerDDPG(HerAgent):
         self.critic_optimizer.step()
 
         self._summary.add_scalars(
-            "Q", {"Q": current_q.mean(), "Target": target_q.mean()}, self._train_steps
+            "Q",
+            {"Q": current_q.mean(), "Target": target_q.mean()},
+            self._train_steps,
         )
         self._summary.add_scalar("Loss/Critic", loss_q, self._train_steps)
 
@@ -320,6 +326,11 @@ class HerDDPG(HerAgent):
         pi_loss += self._action_penalty * actor_out.pow(2).mean()
         if demo_mask.any():
             cloning_loss = actor_out[demo_mask] - action[demo_mask]
+
+            # We account for the possibility that demonstrations can be
+            # suboptimal by applying the behavior cloning loss only to
+            # states where the critic Q(s,a) determines that the demonstrator
+            # action is better than the actor action.
             if self._q_filter:
                 q_mask = (current_q[demo_mask] > actor_q[demo_mask]).flatten()
                 cloning_loss = cloning_loss[q_mask]
@@ -473,7 +484,7 @@ class HerDDPG(HerAgent):
                 ("observation_normalizer", self._obs_normalizer_arg),
                 ("observation_clip", self.obs_normalizer.clip_range),
                 ("action_noise", self._action_noise_arg),
-            ]
+            ],
         )
         pickle.dump(args, open(os.path.join(path, "args.pkl"), "wb"))
 
@@ -494,7 +505,7 @@ class HerDDPG(HerAgent):
             args_values.update(kwargs)
 
             fmt_string = "    {{:>{}}}: {{}}".format(
-                max(len(x) for x in args_values.keys())
+                max(len(x) for x in args_values.keys()),
             )
             for key, value in args_values.items():
                 _LOG.debug(fmt_string.format(key, value))
