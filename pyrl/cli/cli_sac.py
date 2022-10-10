@@ -192,14 +192,14 @@ def _run_train_epoch(trainer, epoch, num_episodes):
 
 @app.command("test", help="Test a SAC agent.")
 def cli_sac_test(
-    environment: str = typer.Argument(..., help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name."),
     agent_path: Path = typer.Argument(
         default=...,
         exists=True,
         file_okay=False,
         help="Path to a previously saved SAC agent checkpoint.",
     ),
-    num_episodes: int = typer.Option(5, help="Number of episodes to run"),
+    num_episodes: int = typer.Option(5, help="Number of episodes to run."),
     seed: int = typer.Option(0),
 ):
     """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""

@@ -216,17 +216,17 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 
 @app.command("test", no_args_is_help=True, help="Test a HER+SAC agent")
 def cli_her_sac_test(
-    environment: str = typer.Argument(..., help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name."),
     agent_path: Path = typer.Argument(
         default=...,
         exists=True,
         file_okay=False,
         help="Path to a previously saved DDPG agent checkpoint.",
     ),
-    num_episodes: int = typer.Option(5, help="Number of episodes to run"),
+    num_episodes: int = typer.Option(5, help="Number of episodes to run."),
     pause: bool = typer.Option(
         default=False,
-        help="Whether the program should pause before running an episode",
+        help="Whether the program should pause before running an episode.",
     ),
     seed: int = typer.Option(0),
 ):

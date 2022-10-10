@@ -32,7 +32,7 @@ _LOG = pyrl.util.logging.get_logger()
 
 @app.command(name="train", no_args_is_help=True, help="Train a HER+DDPG agent")
 def cli_her_ddpg_train(
-    environment: str = typer.Argument(..., help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name."),
     num_epochs: int = typer.Option(
         default=20,
         help="Number of epochs to train the agent for. After each epoch the"
@@ -220,7 +220,7 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 
 @app.command("test", no_args_is_help=True, help="Test a HER+DDPG agent")
 def cli_her_ddpg_test(
-    environment: str = typer.Argument(..., help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name."),
     agent_path: Path = typer.Argument(
         default=...,
         exists=True,
@@ -230,7 +230,7 @@ def cli_her_ddpg_test(
     num_episodes: int = typer.Option(5, help="Number of episodes to run"),
     pause: bool = typer.Option(
         default=False,
-        help="Whether the program should pause before running an episode",
+        help="Whether the program should pause before running an episode.",
     ),
     seed: int = typer.Option(0),
 ):
