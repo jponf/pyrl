@@ -31,41 +31,41 @@ _LOG = pyrl.util.logging.get_logger()
 
 @app.command(name="train", no_args_is_help=True, help="Train a SAC agent.")
 def cli_sac_train(
-    environment: str = typer.Argument(..., help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name."),
     num_epochs: int = typer.Option(
         default=20,
         help="Number of epochs to train the agent for. After each epoch the"
-        + "agent state is saved",
+        + "agent state is saved.",
     ),
     num_episodes: int = typer.Option(
         default=20,
-        help="Number of episodes in an epoch",
+        help="Number of episodes in an epoch.",
     ),
     num_envs: int = typer.Option(
         default=1,
-        help="Run the agent in this number of environments on each episode",
+        help="Run the agent in this number of environments on each episode.",
     ),
     num_evals: int = typer.Option(1),
     num_cpus: int = typer.Option(
         default=1,
-        help="Number of CPUs avaliable to run environments in parallel",
+        help="Number of CPUs avaliable to run environments in parallel.",
     ),
     gamma: float = typer.Option(
         default=0.99,
         min=0.001,
         max=1.0,
-        help="Discount factor",
+        help="Discount factor.",
     ),
-    tau: float = typer.Option(0.001, help="Polyak averaging"),
+    tau: float = typer.Option(0.001, help="Polyak averaging."),
     batch_size: int = typer.Option(
         default=128,
         min=8,
-        help="Batch size used when training the agent's neural network",
+        help="Batch size used when training the agent's neural network.",
     ),
     replay_buffer: int = typer.Option(
         default=1000000,
         min=10000,
-        help="Number of transitions to keep on the replay buffer",
+        help="Number of transitions to keep on the replay buffer.",
     ),
     reward_scale: float = typer.Option(
         default=1.0,
@@ -74,31 +74,31 @@ def cli_sac_train(
     random_steps: int = typer.Option(
         default=1500,
         help="Number of steps taken completely at random before using the "
-        + "actor's action + noise approach",
+        + "actor's action + noise approach.",
     ),
     obs_normalizer: ObservationNormalizer = typer.Option(
         ObservationNormalizer.STANDARD,
         help="Controls how observations will be normalized. "
-        f"{ObservationNormalizer.NONE} disables observaion normalization",
+        f"{ObservationNormalizer.NONE} disables observaion normalization.",
     ),
     obs_clip: float = typer.Option(
         default=5.0,
-        help="Min/Max. value to clip the observations to if they are being normalized",
+        help="Min/Max. value to clip the observations to if they are being normalized.",
     ),
     render: bool = typer.Option(
         default=False,
-        help="Render gym's environment while training (slow)",
+        help="Render gym's environment while training (slow).",
     ),
     load: Optional[Path] = typer.Option(
         default=None,
         exists=True,
         file_okay=False,
-        help="Path to a previously saved SAC checkpoint to resume training",
+        help="Path to a previously saved SAC checkpoint to resume training.",
     ),
     save: Path = typer.Option(
         default="checkpoints/sac",
         file_okay=False,
-        help="Path to save the SAC agent state",
+        help="Path to save the SAC agent state.",
     ),
     seed: int = typer.Option(0),
 ):

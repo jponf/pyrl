@@ -20,9 +20,9 @@ from pyrl.agents.agents_utils import ObservationNormalizer
 ###############################################################################
 
 app = typer.Typer(
-    name="her-ddpg",
+    name="her-td3",
     no_args_is_help=True,
-    help="HER+DDPG agent CLI.",
+    help="HER+TD3 agent CLI.",
 )
 _LOG = pyrl.util.logging.get_logger()
 
@@ -30,8 +30,8 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 
-@app.command(name="train", no_args_is_help=True, help="Train a HER+DDPG agent")
-def cli_her_ddpg_train(
+@app.command(name="train", no_args_is_help=True, help="Train a HER+TD3 agent")
+def cli_her_td3_train(
     environment: str = typer.Argument(..., help="Gym's environment name"),
     num_epochs: int = typer.Option(
         default=20,
@@ -84,6 +84,16 @@ def cli_her_ddpg_train(
         default=1.0,
         help="Factor applied to each reward.",
     ),
+    policy_delay: int = typer.Option(
+        default=2,
+        help="Delay each actor/policy update until the critic have been "
+        + "updated for this number of steps.",
+    ),
+    random_steps: int = typer.Option(
+        default=1500,
+        help="Number of steps taken completely at random before using the "
+        + "actor's action + noise approach.",
+    ),
     action_noise: str = typer.Option(
         default="ou_0.2",
         help="Action noise, it can be 'none' or <name>_<std>, for example:"
@@ -109,15 +119,15 @@ def cli_her_ddpg_train(
         help="Path to a previously saved DDPG checkpoint to resume training.",
     ),
     save: Path = typer.Option(
-        default="checkpoints/her-ddpg",
+        default="checkpoints/her-td3",
         file_okay=False,
         help="Path to save the DDPG agent state.",
     ),
     seed: int = typer.Option(0),
 ):
-    """Trains a HER + DDPG agent on an OpenAI's gym environment."""
+    """Trains a HER + TD3 agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.HerDDPG,
+        agent_cls=pyrl.agents.HerTD3,
         env_name=environment,
         seed=seed,
         num_envs=num_envs,
@@ -129,7 +139,7 @@ def cli_her_ddpg_train(
     trainer.env.seed(seed)
 
     if load:
-        _LOG.info("Loading previously trained agent")
+        _LOG.info("Save path already exists, loading previously trained agent")
         trainer.initialize_agent(agent_path=load, demo_path=demo_path)
     else:
         _LOG.info("Initializing new agent")
@@ -144,6 +154,8 @@ def cli_her_ddpg_train(
                 math.ceil(replay_buffer / env.spec.max_episode_steps),
             ),
             replay_buffer_steps=env.spec.max_episode_steps,
+            policy_delay=policy_delay,
+            random_steps=random_steps,
             replay_k=replay_k,
             demo_batch_size=128,
             q_filter=q_filter,
@@ -165,7 +177,8 @@ def cli_her_ddpg_train(
     _LOG.info("        = Max: %d", agent.replay_buffer.max_steps)
 
     _LOG.debug("Actor network\n%s", str(agent.actor))
-    _LOG.debug("Critic network\n%s", str(agent.critic))
+    _LOG.debug("Critic 1 network\n%s", str(agent.critic_1))
+    _LOG.debug("Critic 2 network\n%s", str(agent.critic_2))
 
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
@@ -192,7 +205,7 @@ def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals, save_pa
             _evaluate(trainer.agent, num_evals, render=False)
         # End epochs
     except KeyboardInterrupt:
-        _LOG.warn("Exiting due to keyboard interruption")
+        _LOG.warning("Exiting due to keyboard interruption")
     finally:
         _LOG.info("Saving agent before exiting")
         trainer.agent.save(save_path, replay_buffer=True)
@@ -218,14 +231,14 @@ def _run_train_epoch(trainer, epoch, num_cycles, num_episodes, save_path):
 ###############################################################################
 
 
-@app.command("test", no_args_is_help=True, help="Test a HER+DDPG agent")
-def cli_her_ddpg_test(
+@app.command("test", no_args_is_help=True, help="Test a HER+TD3 agent")
+def cli_td3_test(
     environment: str = typer.Argument(..., help="Gym's environment name"),
     agent_path: Path = typer.Argument(
         default=...,
         exists=True,
         file_okay=False,
-        help="Path to a previously saved DDPG agent checkpoint.",
+        help="Path to a previously saved SAC agent checkpoint.",
     ),
     num_episodes: int = typer.Option(5, help="Number of episodes to run"),
     pause: bool = typer.Option(
@@ -241,7 +254,7 @@ def cli_her_ddpg_test(
     env.seed(seed)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = pyrl.agents.HerDDPG.load(agent_path, env, replay_buffer=False)
+    agent = pyrl.agents.HerTD3.load(agent_path, env, replay_buffer=False)
     agent.set_eval_mode()
 
     _LOG.info("Agent trained for %d stes", agent.num_train_steps)
@@ -281,7 +294,7 @@ def _evaluate(agent, num_evals, render):
     all_success = []
 
     for _ in six.moves.range(num_evals):
-        rewards, infos, done = pyrl.cli.util.evaluate(
+        rewards, infos, _ = pyrl.cli.util.evaluate(
             agent,
             agent.env,
             agent.max_episode_steps,
