@@ -31,7 +31,7 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 
-@app.command(name="train", no_args_is_help=True, help="Train a ddpg agent.")
+@app.command(name="train", no_args_is_help=True, help="Train a DDPG agent.")
 def cli_ddpg_train(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     num_epochs: int = typer.Option(
@@ -202,7 +202,7 @@ def _run_train_epoch(trainer: AgentTrainer, epoch: int, num_episodes: int):
 ###############################################################################
 
 
-@app.command("test", no_args_is_help=True, help="Test a ddpg agent.")
+@app.command("test", no_args_is_help=True, help="Test a DDPG agent.")
 def cli_ddpg_test(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     agent_path: Path = typer.Argument(

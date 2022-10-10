@@ -18,9 +18,9 @@ from pyrl.agents.agents_utils import ObservationNormalizer
 ###############################################################################
 
 app = typer.Typer(
-    name="td3",
+    name="sac",
     no_args_is_help=True,
-    help="TD3 agent CLI.",
+    help="SAC agent CLI.",
 )
 _LOG = pyrl.util.logging.get_logger()
 
@@ -28,8 +28,8 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 
-@app.command(name="train", no_args_is_help=True, help="Train a TD3 agent.")
-def cli_ddpg_train(
+@app.command(name="train", no_args_is_help=True, help="Train a SAC agent.")
+def cli_sac_train(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     num_epochs: int = typer.Option(
         20,
@@ -70,20 +70,10 @@ def cli_ddpg_train(
         default=1.0,
         help="Factor applied to each reward.",
     ),
-    policy_delay: int = typer.Option(
-        default=2,
-        help="Delay each actor/policy update until the critic have been "
-        + "updated for this number of steps",
-    ),
     random_steps: int = typer.Option(
         default=1500,
         help="Number of steps taken completely at random before using the "
         + "actor's action + noise approach",
-    ),
-    action_noise: str = typer.Option(
-        default="ou_0.2",
-        help="Action noise, it can be 'none' or <name>_<std>, for example:"
-        " ou_0.2 or normal_0.1.",
     ),
     obs_normalizer: ObservationNormalizer = typer.Option(
         ObservationNormalizer.STANDARD,
@@ -113,7 +103,7 @@ def cli_ddpg_train(
 ):
     """Trains a TD3 agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.TD3,
+        agent_cls=pyrl.agents.SAC,
         env_name=environment,
         seed=seed,
         num_envs=num_envs,
@@ -135,13 +125,11 @@ def cli_ddpg_train(
                 batch_size=batch_size,
                 reward_scale=reward_scale,
                 replay_buffer_size=replay_buffer,
-                policy_delay=policy_delay,
                 random_steps=random_steps,
                 actor_lr=1e-3,
                 critic_lr=1e-3,
                 observation_normalizer=obs_normalizer,
                 observation_clip=obs_clip,
-                action_noise=action_noise,
             ),
         )
 
@@ -201,8 +189,8 @@ def _run_train_epoch(trainer, epoch, num_episodes):
 ###############################################################################
 
 
-@app.command("test", no_args_is_help=True, help="Test a TD3 agent.")
-def cli_td3_test(
+@app.command("test", help="Test a SAC agent.")
+def cli_sac_test(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     agent_path: Path = typer.Argument(
         default=None,
@@ -220,7 +208,7 @@ def cli_td3_test(
     env.seed(seed)
 
     _LOG.info("Loading agent from %s", agent_path)
-    agent = pyrl.agents.TD3.load(agent_path, replay_buffer=False)
+    agent = pyrl.agents.SAC.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
     _LOG.info("Agent trained for %d stes", agent.num_train_steps)

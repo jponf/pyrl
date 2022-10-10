@@ -6,9 +6,8 @@ import typer
 import pyrl.cli.her_ddpg
 import pyrl.cli.her_sac
 import pyrl.cli.her_td3
-import pyrl.cli.sac
 import pyrl.util.logging
-from pyrl.cli import cli_ddpg, cli_list, cli_td3
+from pyrl.cli import cli_ddpg, cli_list, cli_sac, cli_td3
 from pyrl.util.logging import LoggingLevelName
 
 # import sys
@@ -59,8 +58,9 @@ pyrl_cli = typer.Typer(
 )
 
 pyrl_cli.add_typer(cli_ddpg.app)
-pyrl_cli.add_typer(cli_td3.app)
 pyrl_cli.add_typer(cli_list.app)
+pyrl_cli.add_typer(cli_sac.app)
+pyrl_cli.add_typer(cli_td3.app)
 
 
 # def run_main():
