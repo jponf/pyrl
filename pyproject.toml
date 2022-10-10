@@ -23,23 +23,25 @@ keywords = ["Reinforcement Learning", "DDPG", "TD3", "SAC",
 
 [tool.poetry.dependencies]
 python = ">=3.8,<3.10"
-click = ">=6.0"
 gym = "^0.15.4"
 h5py = "^3.0.0"
 six = "^1.0.0"
 tensorflow = "^2.9"
 torch = "^1.8.2"
 tqdm = "^4.46.0"
+typer = {version = "^0.6.1", extras = ["rich", "shellingham"]}
 
 [tool.poetry.group.dev.dependencies]
-black = "^21.11b1"
+black = "^22.10"
 mypy = "^0.910"
 types-six = "^1.16.3"
 pre-commit = "^2.20.0"
 safety = "^2.3.1"
+isort = "^5.10.1"
+flake8 = "^5.0.4"
 
-[tool.poetry.group.test.dependencies]
-
+[tool.poetry.group.gym-extras.dependencies]
+box2d-py = "^2.3.8"
 
 [tool.black]
 line-length = 88
@@ -52,6 +54,12 @@ extend-exclude = '''
   | profiling
 )/
 '''
+
+[tool.isort]
+profile = "black"
+known_standard_library = "dataclasses,typing_extensions"
+known_third_party = "pandas,plotly,yaml"
+known_first_party = "statistics_backend"
 
 [tool.mypy]
 cache_dir = ".cache/mypy/"

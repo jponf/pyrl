@@ -4,26 +4,44 @@
 modules of the project.
 """
 
-from __future__ import (
-    absolute_import, print_function, division, unicode_literals
-)
 
 import collections
 import copy
 import logging
 import sys
 
+from pyrl.util.type_utils import StrEnum
 
 ###############################################################################
 
-LEVELS = collections.OrderedDict([("NOTSET", 0), ("DEBUG", 10),
-                                  ("INFO", 20), ("WARNING", 30),
-                                  ("ERROR", 40), ("CRITICAL", 50)])
+
+class LoggingLevelName(StrEnum):
+    """Logging message levels names."""
+
+    NOTSET = "NOTSET"
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+LEVELS = collections.OrderedDict(
+    [
+        (LoggingLevelName.NOTSET, logging.NOTSET),
+        (LoggingLevelName.DEBUG, logging.DEBUG),
+        (LoggingLevelName.INFO, logging.INFO),
+        (LoggingLevelName.WARNING, logging.WARNING),
+        (LoggingLevelName.ERROR, logging.ERROR),
+        (LoggingLevelName.CRITICAL, logging.CRITICAL),
+    ],
+)
 
 LOGGER_NAME = "PyRL"
 
 
 ###############################################################################
+
 
 def get_logger():
     """Access the pydgga package logger.

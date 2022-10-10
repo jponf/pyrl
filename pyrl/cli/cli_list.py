@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import, print_function, division, unicode_literals
+from __future__ import absolute_import, division, print_function, unicode_literals
 
-import click
 import gym
 import sys
-
-
-###############################################################################
-
-if hasattr(click, "disable_unicode_literals_warning"):
-    setattr(click, "disable_unicode_literals_warning", True)
-
+import typer
 
 ###############################################################################
 
+app = typer.Typer(
+    name="list",
+    no_args_is_help=True,
+    help="List environments and agents.",
+)
 
-@click.command(name="list-envs")
+###############################################################################
+
+
+@app.command(name="envs", help="List environments.")
 def cli_list_envs():
     """Lists the environments registered by the robotrl package."""
     environments = [env_spec.id for env_spec in gym.envs.registry.all()]

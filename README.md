@@ -58,7 +58,7 @@ the different agents on OpenAI gym environments. For example, to train the
 *DDPG* agent on the *Bipedal Walker* environment use the command:
 
 ```bash
-python3 -m pyrl ddpg-train BipedalWalker-v3
+$ python3 -m pyrl ddpg train BipedalWalker-v3
 ```
 
 The command above will run a generic *DDPG* training routine on the *Bipedal
@@ -67,7 +67,7 @@ there are more options, to get the list of all the available entry points and
 some package wide options use the *-h/--help* flag:
 
 ```bash
-python3 -m pyrl --help
+$ python3 -m pyrl --help
 ```
 
 Moreover, there are several options specific to to each train/test entry points
@@ -75,8 +75,8 @@ that can be used to configure some aspects of the train/test routines. To get
 these options use the *-h/--help* flag after the entry point, for example:
 
 ```bash
-python -m pyrl ddpg-train --help
-python -m pyrl ddpg-test --help
+$ python3 -m pyrl ddpg train --help
+$ python3 -m pyrl ddpg test --help
 ```
 
 ## Package Structure 💻
