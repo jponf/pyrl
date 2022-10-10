@@ -116,12 +116,12 @@ def cli_her_td3_train(
         default=None,
         exists=True,
         file_okay=False,
-        help="Path to a previously saved DDPG checkpoint to resume training.",
+        help="Path to a previously saved HER+TD3 checkpoint to resume training.",
     ),
     save: Path = typer.Option(
         default="checkpoints/her-td3",
         file_okay=False,
-        help="Path to save the DDPG agent state.",
+        help="Path to save the HER+TD3 agent state.",
     ),
     seed: int = typer.Option(0),
 ):

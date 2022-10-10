@@ -3,9 +3,16 @@
 import importlib
 import typer
 
-import pyrl.cli.her_sac
 import pyrl.util.logging
-from pyrl.cli import cli_ddpg, cli_her_ddpg, cli_her_td3, cli_list, cli_sac, cli_td3
+from pyrl.cli import (
+    cli_ddpg,
+    cli_her_ddpg,
+    cli_her_sac,
+    cli_her_td3,
+    cli_list,
+    cli_sac,
+    cli_td3,
+)
 from pyrl.util.logging import LoggingLevelName
 
 # import sys
@@ -57,35 +64,11 @@ pyrl_cli = typer.Typer(
 
 pyrl_cli.add_typer(cli_ddpg.app)
 pyrl_cli.add_typer(cli_her_ddpg.app)
+pyrl_cli.add_typer(cli_her_sac.app)
 pyrl_cli.add_typer(cli_her_td3.app)
 pyrl_cli.add_typer(cli_list.app)
 pyrl_cli.add_typer(cli_sac.app)
 pyrl_cli.add_typer(cli_td3.app)
-
-
-# def run_main():
-#     """Utility function that runs the CLI main routine."""
-#     main.add_command(pyrl.cli.list.cli_list_envs)
-
-#     main.add_command(pyrl.cli.ddpg.cli_ddpg_train)
-#     main.add_command(pyrl.cli.ddpg.cli_ddpg_test)
-
-#     main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_train)
-#     main.add_command(pyrl.cli.her_ddpg.cli_her_ddpg_test)
-
-#     main.add_command(pyrl.cli.sac.cli_sac_train)
-#     main.add_command(pyrl.cli.sac.cli_sac_test)
-#     main.add_command(pyrl.cli.her_sac.cli_her_sac_train)
-#     main.add_command(pyrl.cli.her_sac.cli_her_sac_test)
-
-#     main.add_command(pyrl.cli.td3.cli_td3_train)
-#     main.add_command(pyrl.cli.td3.cli_td3_test)
-
-#     main.add_command(pyrl.cli.her_td3.cli_her_td3_train)
-#     main.add_command(pyrl.cli.her_td3.cli_her_td3_test)
-
-#     # pylint: disable=unexpected-keyword-arg, no-value-for-parameter
-#     main(prog_name="torchrl")
 
 
 if __name__ == "__main__":
