@@ -8,6 +8,7 @@ import sys
 import time
 import typer
 from pathlib import Path
+from typing import Optional
 
 import pyrl.agents
 import pyrl.cli.util
@@ -33,27 +34,27 @@ _LOG = pyrl.util.logging.get_logger()
 
 @app.command(name="train", no_args_is_help=True, help="Train a DDPG agent.")
 def cli_ddpg_train(
-    environment: str = typer.Argument(None, help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name"),
     num_epochs: int = typer.Option(
-        20,
+        default=20,
         help="Number of epochs to train the agent for. After each epoch the"
         + "agent state is saved",
     ),
     num_episodes: int = typer.Option(
-        20,
+        default=20,
         help="Number of episodes in an epoch",
     ),
     num_envs: int = typer.Option(
-        1,
+        default=1,
         help="Run the agent in this number of environments on each episode",
     ),
     num_evals: int = typer.Option(1),
     num_cpus: int = typer.Option(
-        1,
+        default=1,
         help="Number of CPUs avaliable to run environments in parallel",
     ),
     gamma: float = typer.Option(
-        0.99,
+        default=0.99,
         min=0.001,
         max=1.0,
         help="Discount factor",
@@ -95,7 +96,7 @@ def cli_ddpg_train(
         default=False,
         help="Render gym's environment while training (slow)",
     ),
-    load: Path = typer.Option(
+    load: Optional[Path] = typer.Option(
         default=None,
         exists=True,
         file_okay=False,
@@ -204,9 +205,9 @@ def _run_train_epoch(trainer: AgentTrainer, epoch: int, num_episodes: int):
 
 @app.command("test", no_args_is_help=True, help="Test a DDPG agent.")
 def cli_ddpg_test(
-    environment: str = typer.Argument(None, help="Gym's environment name"),
+    environment: str = typer.Argument(..., help="Gym's environment name"),
     agent_path: Path = typer.Argument(
-        default=None,
+        default=...,
         exists=True,
         file_okay=False,
         help="Path to a previously saved DDPG agent checkpoint.",
