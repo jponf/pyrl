@@ -56,7 +56,7 @@ def cli_ddpg_train(
         max=1.0,
         help="Discount factor.",
     ),
-    tau: float = typer.Option(0.001, help="Polyak averaging"),
+    tau: float = typer.Option(0.001, help="Polyak averaging."),
     batch_size: int = typer.Option(
         default=128,
         min=8,
