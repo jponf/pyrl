@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import gym
 import numpy as np
 import os
 import six
@@ -15,15 +14,13 @@ import pyrl.trainer
 import pyrl.util.logging
 import pyrl.util.ugym
 from pyrl.agents.agents_utils import ObservationNormalizer
-from pyrl.agents.ddpg import DDPG
-from pyrl.trainer.trainer import AgentTrainer
 
 ###############################################################################
 
 app = typer.Typer(
-    name="ddpg",
+    name="td3",
     no_args_is_help=True,
-    help="DDPG agent CLI.",
+    help="TD3 agent CLI.",
 )
 _LOG = pyrl.util.logging.get_logger()
 
@@ -31,7 +28,7 @@ _LOG = pyrl.util.logging.get_logger()
 ###############################################################################
 
 
-@app.command(name="train", no_args_is_help=True, help="Train a ddpg agent.")
+@app.command(name="train", no_args_is_help=True, help="Train a TD3 agent.")
 def cli_ddpg_train(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     num_epochs: int = typer.Option(
@@ -73,14 +70,20 @@ def cli_ddpg_train(
         default=1.0,
         help="Factor applied to each reward.",
     ),
+    policy_delay: int = typer.Option(
+        default=2,
+        help="Delay each actor/policy update until the critic have been "
+        + "updated for this number of steps",
+    ),
+    random_steps: int = typer.Option(
+        default=1500,
+        help="Number of steps taken completely at random before using the "
+        + "actor's action + noise approach",
+    ),
     action_noise: str = typer.Option(
         default="ou_0.2",
         help="Action noise, it can be 'none' or <name>_<std>, for example:"
         " ou_0.2 or normal_0.1.",
-    ),
-    parameter_noise: float = typer.Option(
-        default=0.0,
-        help="Adaptative parameter noise standard deviation",
     ),
     obs_normalizer: ObservationNormalizer = typer.Option(
         ObservationNormalizer.STANDARD,
@@ -108,9 +111,9 @@ def cli_ddpg_train(
     ),
     seed: int = typer.Option(0),
 ):
-    """Trains a DDPG agent on an OpenAI's gym environment."""
+    """Trains a TD3 agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.DDPG,
+        agent_cls=pyrl.agents.TD3,
         env_name=environment,
         seed=seed,
         num_envs=num_envs,
@@ -132,12 +135,13 @@ def cli_ddpg_train(
                 batch_size=batch_size,
                 reward_scale=reward_scale,
                 replay_buffer_size=replay_buffer,
+                policy_delay=policy_delay,
+                random_steps=random_steps,
                 actor_lr=1e-3,
                 critic_lr=1e-3,
                 observation_normalizer=obs_normalizer,
                 observation_clip=obs_clip,
                 action_noise=action_noise,
-                parameter_noise=parameter_noise,
             ),
         )
 
@@ -147,7 +151,8 @@ def cli_ddpg_train(
     _LOG.info("    = Max. Size: %d", trainer.agent.replay_buffer.max_size)
 
     _LOG.debug("Actor network\n%s", str(trainer.agent.actor))
-    _LOG.debug("Critic network\n%s", str(trainer.agent.critic))
+    _LOG.debug("Critic 1 network\n%s", str(trainer.agent.critic_1))
+    _LOG.debug("Critic 2 network\n%s", str(trainer.agent.critic_2))
 
     _LOG.info("Action space: %s", str(trainer.env.action_space))
     _LOG.info("Observation space: %s", str(trainer.env.observation_space))
@@ -161,13 +166,7 @@ def cli_ddpg_train(
     sys.exit(0)
 
 
-def _run_train(
-    trainer: AgentTrainer,
-    num_epochs: int,
-    num_episodes: int,
-    num_evals: int,
-    save_path: Path,
-):
+def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
     try:
         for epoch in six.moves.range(1, num_epochs + 1):
             _LOG.info("===== EPOCH: %d/%d", epoch, num_epochs)
@@ -184,14 +183,14 @@ def _run_train(
             _evaluate(trainer.agent, trainer.env, num_evals, render=False)
         # End epochs
     except KeyboardInterrupt:
-        _LOG.warn("Exiting due to keyboard interruption")
+        _LOG.warning("Exiting due to keyboard interruption")
     finally:
         _LOG.info("Saving agent before exiting")
         trainer.agent.save(save_path, replay_buffer=True)
         trainer.env.close()
 
 
-def _run_train_epoch(trainer: AgentTrainer, epoch: int, num_episodes: int):
+def _run_train_epoch(trainer, epoch, num_episodes):
     for episode in six.moves.range(1, num_episodes + 1):
         episode_start_time = time.time()
         _LOG.info("----- EPISODE: %d/%d [EPOCH: %d]", episode, num_episodes, epoch)
@@ -202,8 +201,8 @@ def _run_train_epoch(trainer: AgentTrainer, epoch: int, num_episodes: int):
 ###############################################################################
 
 
-@app.command("test", no_args_is_help=True, help="Test a ddpg agent.")
-def cli_ddpg_test(
+@app.command("test", no_args_is_help=True, help="Test a TD3 agent.")
+def cli_td3_test(
     environment: str = typer.Argument(None, help="Gym's environment name"),
     agent_path: Path = typer.Argument(
         default=None,
@@ -214,14 +213,14 @@ def cli_ddpg_test(
     num_episodes: int = typer.Option(5, help="Number of episodes to run"),
     seed: int = typer.Option(0),
 ):
-    """Runs a previously trained DDPG agent on an OpenAI's gym environment."""
+    """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = pyrl.util.ugym.make_flat(environment)
     pyrl.cli.util.initialize_seed(seed)
     env.seed(seed)
 
     _LOG.info("Loading agent from %s", agent_path)
-    agent = pyrl.agents.DDPG.load(agent_path, replay_buffer=False)
+    agent = pyrl.agents.TD3.load(agent_path, replay_buffer=False)
     agent.set_eval_mode()
 
     _LOG.info("Agent trained for %d stes", agent.num_train_steps)
@@ -249,11 +248,11 @@ def cli_ddpg_test(
 ###############################################################################
 
 
-def _evaluate(agent: DDPG, env: gym.Env, num_evals: int, render: bool):
+def _evaluate(agent, env, num_evals, render):
     all_rewards = []
 
     for _ in six.moves.range(num_evals):
-        rewards, infos, done = pyrl.cli.util.evaluate(
+        rewards, _, done = pyrl.cli.util.evaluate(
             agent,
             env,
             env.spec.max_episode_steps,
