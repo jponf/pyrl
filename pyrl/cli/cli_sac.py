@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import numpy as np
 import os
 import six
 import sys
@@ -9,12 +8,12 @@ import typer
 from pathlib import Path
 from typing import Optional
 
-import pyrl.agents
-import pyrl.cli.util
 import pyrl.trainer
 import pyrl.util.logging
 import pyrl.util.ugym
 from pyrl.agents.agents_utils import ObservationNormalizer
+from pyrl.agents.sac import SAC
+from pyrl.cli.common import cli_agent_evaluation, evaluate_agent, initialize_seed
 
 ###############################################################################
 
@@ -104,15 +103,14 @@ def cli_sac_train(
 ):
     """Trains a TD3 agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.SAC,
+        agent_cls=SAC,
         env_name=environment,
         seed=seed,
         num_envs=num_envs,
         num_cpus=num_cpus,
         root_log_dir=os.path.join(save, "log"),
     )
-    pyrl.cli.util.initialize_seed(seed)
-    trainer.env.seed(seed)
+    initialize_seed(seed, trainer.env)
 
     if load:
         _LOG.info("Loading agent")
@@ -169,8 +167,13 @@ def _run_train(trainer, num_epochs, num_episodes, num_evals, save_path):
             # End episodes
             _LOG.info("----- EVALUATING")
             trainer.agent.set_eval_mode()
-            _evaluate(trainer.agent, trainer.env, num_evals, render=False)
-        # End epochs
+            evaluate_agent(
+                trainer.agent,
+                trainer.env,
+                num_evals,
+                render=False,
+                is_her=False,
+            )
     except KeyboardInterrupt:
         _LOG.warning("Exiting due to keyboard interruption")
     finally:
@@ -199,66 +202,26 @@ def cli_sac_test(
         file_okay=False,
         help="Path to a previously saved SAC agent checkpoint.",
     ),
+    pause: bool = typer.Option(
+        default=False,
+        help="Whether the program should pause before running an episode.",
+    ),
     num_episodes: int = typer.Option(5, help="Number of episodes to run."),
     seed: int = typer.Option(0),
 ):
     """Runs a previosly trained TD3 agent on an OpenAI's gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = pyrl.util.ugym.make_flat(environment)
-    pyrl.cli.util.initialize_seed(seed)
-    env.seed(seed)
+    initialize_seed(seed, env)
 
     _LOG.info("Loading agent from %s", agent_path)
-    agent = pyrl.agents.SAC.load(agent_path, replay_buffer=False)
-    agent.set_eval_mode()
+    agent = SAC.load(agent_path, replay_buffer=False)
 
-    _LOG.info("Agent trained for %d stes", agent.num_train_steps)
-    _LOG.info("Action space size: %s", str(agent.action_space))
-    _LOG.info("Observation space size: %s", str(agent.observation_space))
-
-    env.render()  # Some environments must be rendered before running
-    all_rewards = []
-    for episode in six.moves.range(num_episodes):
-        _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
-        rewards = _evaluate(agent, env, num_evals=1, render=True)
-        all_rewards.extend(rewards)
-
-    env.close()
-    sum_score = sum(x.sum() for x in all_rewards)
-    _LOG.info(
-        "Average sum score over %d runs: %d",
-        len(all_rewards),
-        sum_score / len(all_rewards),
+    cli_agent_evaluation(
+        agent,
+        env,
+        num_episodes,
+        pause=pause,
+        is_her=False,
     )
-
     sys.exit(0)
-
-
-###############################################################################
-
-
-def _evaluate(agent, env, num_evals, render):
-    all_rewards = []
-
-    for _ in six.moves.range(num_evals):
-        rewards, _, done = pyrl.cli.util.evaluate(
-            agent,
-            env,
-            env.spec.max_episode_steps,
-            render,
-        )
-
-        all_rewards.append(rewards)
-        if done:
-            _LOG.info("[DONE]")
-
-        _LOG.info(
-            "Last reward: %.5f, Sum reward: %.5f,"
-            " Avg. reward: %.5f, Std. reward: %.5f",
-            rewards[-1],
-            np.sum(rewards),
-            np.mean(rewards),
-            np.std(rewards),
-        )
-
-    return all_rewards
