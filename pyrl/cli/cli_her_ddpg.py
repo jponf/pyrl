@@ -2,7 +2,6 @@
 
 import gym
 import math
-import numpy as np
 import os
 import six
 import sys
@@ -11,11 +10,11 @@ import typer
 from pathlib import Path
 from typing import Optional
 
-import pyrl.agents
-import pyrl.cli.util
 import pyrl.trainer
 import pyrl.util.logging
 from pyrl.agents.agents_utils import ObservationNormalizer
+from pyrl.agents.her_ddpg import HerDDPG
+from pyrl.cli.common import cli_agent_evaluation, evaluate_agent, initialize_seed
 
 ###############################################################################
 
@@ -117,16 +116,14 @@ def cli_her_ddpg_train(
 ):
     """Trains a HER + DDPG agent on an OpenAI's gym environment."""
     trainer = pyrl.trainer.AgentTrainer(
-        agent_cls=pyrl.agents.HerDDPG,
+        agent_cls=HerDDPG,
         env_name=environment,
         seed=seed,
         num_envs=num_envs,
         num_cpus=num_cpus,
         root_log_dir=os.path.join(save, "log"),
     )
-
-    pyrl.cli.util.initialize_seed(seed)
-    trainer.env.seed(seed)
+    initialize_seed(seed, trainer.env)
 
     if load:
         _LOG.info("Loading previously trained agent")
@@ -189,8 +186,13 @@ def _run_train(trainer, num_epochs, num_cycles, num_episodes, num_evals, save_pa
             # End episodes
             _LOG.info("----- EVALUATING")
             trainer.agent.set_eval_mode()
-            _evaluate(trainer.agent, num_evals, render=False)
-        # End epochs
+            evaluate_agent(
+                trainer.agent,
+                trainer.env,
+                num_evals,
+                render=False,
+                is_her=True,
+            )
     except KeyboardInterrupt:
         _LOG.warn("Exiting due to keyboard interruption")
     finally:
@@ -237,71 +239,16 @@ def cli_her_ddpg_test(
     """Runs a previosly trained HER+TD3 agent on a gym environment."""
     _LOG.info("Loading '%s'", environment)
     env = gym.make(environment)
-    pyrl.cli.util.initialize_seed(seed)
-    env.seed(seed)
+    initialize_seed(seed, env)
 
     _LOG.info("Loading agent from '%s'", agent_path)
-    agent = pyrl.agents.HerDDPG.load(agent_path, env, replay_buffer=False)
-    agent.set_eval_mode()
+    agent = HerDDPG.load(agent_path, env, replay_buffer=False)
 
-    _LOG.info("Agent trained for %d stes", agent.num_train_steps)
-    _LOG.info("Action space size: %s", str(agent.env.action_space))
-    _LOG.info("Observation space size: %s", str(agent.env.observation_space))
-
-    all_rewards = []
-    all_success = []
-    for episode in six.moves.range(num_episodes):
-        _LOG.info("Running episode %d/%d", episode + 1, num_episodes)
-        if pause:
-            input("Press enter to start episode")
-        rewards, success = _evaluate(agent, 1, render=True)
-        all_rewards.extend(rewards)
-        all_success.extend(success)
-    env.close()
-
-    sum_score = sum(x.sum() for x in all_rewards)
-    sum_success = sum(all_success)
-    _LOG.info("Avg sum score: %.5f", sum_score / len(all_rewards))
-    # _LOG.info("Last rewards: %s", ", ".join(str(x[-1]) for x in all_rewards))
-    _LOG.info(
-        "Success %d of %d (%.2f)",
-        sum_success,
+    cli_agent_evaluation(
+        agent,
+        env,
         num_episodes,
-        sum_success / num_episodes,
+        pause=pause,
+        is_her=True,
     )
-
     sys.exit(0)
-
-
-###############################################################################
-
-
-def _evaluate(agent, num_evals, render):
-    all_rewards = []
-    all_success = []
-
-    for _ in six.moves.range(num_evals):
-        rewards, infos, done = pyrl.cli.util.evaluate(
-            agent,
-            agent.env,
-            agent.max_episode_steps,
-            render,
-        )
-
-        success = any(x["is_success"] for x in infos)
-        all_rewards.append(rewards)
-        all_success.append(success)
-
-        if success:
-            _LOG.info("[SUCCESS]")
-
-        _LOG.info(
-            "Last reward: %.5f, Sum reward: %.5f,"
-            " Avg. reward: %.5f, Std. reward: %.5f",
-            rewards[-1],
-            np.sum(rewards),
-            np.mean(rewards),
-            np.std(rewards),
-        )
-
-    return all_rewards, all_success
